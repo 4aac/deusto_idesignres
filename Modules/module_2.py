@@ -20,6 +20,13 @@ def _redistribute(profile, new_total):
     return out.round(2)
 
 
+def _resolve_factor_column(data_industry_type, candidates):
+    for name in candidates:
+        if name in data_industry_type.columns:
+            return name
+    raise KeyError(f"None of the factor columns found: {', '.join(candidates)}")
+
+
 
 def apply_peak_base_factors(year, industry_number, data_industry_type, 
                             weekday_1, saturday_1, sunday_1, holiday_1, constant_1):
@@ -50,7 +57,8 @@ def apply_peak_base_factors(year, industry_number, data_industry_type,
     peak_actual = np.max(y)
 
     # Step 3:
-    peak_target = (float(data_industry_type[data_industry_type["industry_number"] == industry_number]["Peak_factor"].iloc[0]) - 1) * 100
+    peak_col = _resolve_factor_column(data_industry_type, ["Peak_factor", "Peak_faktor"])
+    peak_target = (float(data_industry_type[data_industry_type["industry_number"] == industry_number][peak_col].iloc[0]) - 1) * 100
     if peak_target == -100: 
         peak_target = peak_actual
     
@@ -64,7 +72,8 @@ def apply_peak_base_factors(year, industry_number, data_industry_type,
     """ SATURDAY ADJUSTMENT """
     y = saturday_1["Total"] - saturday_1["Total"].iloc[0]
     base_actual = np.min(y)
-    base_target = (float(data_industry_type[data_industry_type["industry_number"] == industry_number]["Base_factor"].iloc[0]) - 1) * 100
+    base_col = _resolve_factor_column(data_industry_type, ["Base_factor", "Base_faktor"])
+    base_target = (float(data_industry_type[data_industry_type["industry_number"] == industry_number][base_col].iloc[0]) - 1) * 100
     if base_target == -100:
         base_target = base_actual
     saturday = _adjust_total(saturday_1["Total"], base_target / base_actual)

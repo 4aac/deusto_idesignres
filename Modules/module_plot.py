@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -30,10 +31,10 @@ ELECTRIC_COLORS = [
 THERMAL_LABELS = [
     "Space heating",
     "Hot water",
-    "< 100 �C",
-    "100 �C - 500 �C",
-    "500 �C - 1000 �C",
-    ">1000 �C",
+    "< 100 °C",
+    "100 °C - 500 °C",
+    "500 °C - 1000 °C",
+    ">1000 °C",
 ]
 
 THERMAL_COLORS = [
@@ -107,7 +108,13 @@ def _plot_stack(x_labels, y_stack, labels, colors, xtick, title=None, y_max=None
     if title:
         ax.set_title(title, fontsize=12)
 
-    ax.legend(reversed(ax.get_legend_handles_labels()[0]), reversed(labels), loc="upper right", fontsize=9)
+    handles, legend_labels = ax.get_legend_handles_labels()
+    ax.legend(
+        list(reversed(handles)),
+        list(reversed(legend_labels)),
+        loc="upper right",
+        fontsize=9,
+    )
     ax.set_xlim(left=0, right=max(x) if len(x) else 0)
 
     if y_max is None and y_stack.size:
@@ -156,7 +163,7 @@ def year_electrical(df, industry_name, industry_type, base_path):
     )
 
     base_path = Path(base_path)
-    output_path = base_path / "Electrical" / "Diagrams" / f"{industry_name}_Diagram.png"
+    output_path = base_path / "Generated" / "diagrams" / f"{industry_name}_Diagram.png"
     fig.savefig(output_path, bbox_inches="tight")
     plt.show()
 
@@ -195,6 +202,6 @@ def year_thermal(df, industry_name, industry_type, base_path):
     )
 
     base_path = Path(base_path)
-    output_path = base_path / "Thermal" / "Diagrams" / f"{industry_name}_Diagram.png"
+    output_path = base_path / "Generated" / "diagrams" / f"{industry_name}_Diagram.png"
     fig.savefig(output_path, bbox_inches="tight")
     plt.show()

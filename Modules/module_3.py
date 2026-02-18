@@ -124,6 +124,30 @@ def build_load_type_calendar(year):
 
 
 
+def _resolve_project_root(base_path):
+    if base_path:
+        path = Path(base_path)
+    else:
+        path = Path(__file__).resolve().parent.parent
+
+    name = path.name.lower()
+    if name in {"electricalprofile", "thermalprofile"}:
+        return path.parent
+    if name == "data" and path.parent.name.lower() in {"electricalprofile", "thermalprofile"}:
+        return path.parent.parent
+
+    return path
+
+
+def _resolve_existing_path(candidates):
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    raise FileNotFoundError(
+        "None of the expected data files exist: " + ", ".join(str(c) for c in candidates)
+    )
+
+
 def seasonality(year, year_list, array_load_type, 
                 weekday_adjusted, saturday_adjusted, sunday_adjusted, holiday_adjusted, constant_adjusted, 
                 path):
@@ -135,8 +159,16 @@ def seasonality(year, year_list, array_load_type,
     - Low HDD in summer → low heating demand
     """
     # Read heating degree day factors by month
-    base_path = Path(path)
-    month_factor = pd.read_excel(base_path / "HeatingDegreeDays.xlsx", sheet_name="HDD")
+    project_root = _resolve_project_root(path)
+    hdd_path = _resolve_existing_path(
+        [
+            project_root / "HeatingDegreeDays.xlsx",
+            project_root / "ElectricalProfile" / "data" / "HeatingDegreeDays.xlsx",
+            project_root / "ThermalProfile" / "data" / "HeatingDegreeDays.xlsx",
+            project_root / "data" / "HeatingDegreeDays.xlsx",
+        ]
+    )
+    month_factor = pd.read_excel(hdd_path, sheet_name="HDD")
     month_factor = month_factor.iloc[0][1:13]  # Extract 12 monthly factors
     
     # Dictionary mapping load pattern types to their respective load profiles
