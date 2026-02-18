@@ -1,5 +1,11 @@
-import pandas as pd
+import sys
 from pathlib import Path
+import pandas as pd
+
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from Modules import module_1, module_2, module_3, module_4, module_plot
 
@@ -32,6 +38,8 @@ BASE_PATH = ""
 
 
 def run(industry_number, year, base_path_str):
+    base_path = Path(base_path_str) if base_path_str else PROJECT_ROOT
+    base_path_str = str(base_path)
     # ========================
     #     RUN MODULE 1:
     # ========================
@@ -82,13 +90,12 @@ def run(industry_number, year, base_path_str):
     df_scaled = module_4.upscale_yearly(year, industry_number, df_normalized, data_industry_type)
 
     # Save thermal load data and diagrams
-    base_path = Path(base_path_str)
-    diagrams_dir = base_path / "Thermal" / "Diagrams"
+    diagrams_dir = base_path / "Generated" / "diagrams"
     diagrams_dir.mkdir(parents=True, exist_ok=True)
     module_plot.year_thermal(df_scaled, industry_name, industry_type, base_path)  # Plots and saves diagram
 
     # Create the LoadData folder if it doesn't exist
-    load_data_dir = base_path / "Thermal" / "LoadData"
+    load_data_dir = base_path / "Generated" / "load_profiles"
     load_data_dir.mkdir(parents=True, exist_ok=True)
 
     columns = pd.MultiIndex.from_arrays(
