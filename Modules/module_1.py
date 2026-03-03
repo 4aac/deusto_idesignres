@@ -1,6 +1,7 @@
 import pandas as pd
 from pathlib import Path
 
+from Modules import module_work_shift
 
 
 def _resolve_project_root(base_path):
@@ -9,10 +10,19 @@ def _resolve_project_root(base_path):
     else:
         path = Path(__file__).resolve().parent.parent
 
+    if path.suffix:
+        path = path.parent
+
     name = path.name.lower()
+    parent_name = path.parent.name.lower() if path.parent else ""
+
     if name in {"electricalprofile", "thermalprofile"}:
         return path.parent
-    if name == "data" and path.parent.name.lower() in {"electricalprofile", "thermalprofile"}:
+    if name == "data":
+        if parent_name in {"electricalprofile", "thermalprofile"}:
+            return path.parent.parent
+        return path.parent
+    if parent_name == "data" and name in {"electricalspecific", "heatspecific", "general"}:
         return path.parent.parent
 
     return path
@@ -34,6 +44,7 @@ def _read_enduser_profiles(base_path, sheet_name):
     project_root = _resolve_project_root(base_path)
     data_path = _resolve_existing_path(
         [
+            project_root / "Data" / "ElectricalSpecific" / "Load_profiles_enduser.xlsx",
             project_root / "ElectricalProfile" / "data" / "Load_profiles_enduser.xlsx",
             project_root / "Electrical" / "Load_profiles_enduser.xlsx",
         ]
@@ -76,11 +87,61 @@ def _normalize_electric_profile_columns(df):
 
     if "Mechanical drive" in df.columns and "Mechanical drives" not in df.columns:
         df = df.rename(columns={"Mechanical drive": "Mechanical drives"})
-
     return df
 
 
-def _select_electric_weights(data_industry_type):
+def build_electric_daily_profiles(industry_number, base_path, apply_shifts=True):
+    """ INPUT: END USER PROFILES """
+    profiles_weekday = _normalize_electric_profile_columns(_read_enduser_profiles(base_path, "Week_day"))
+    profiles_saturday = _normalize_electric_profile_columns(_read_enduser_profiles(base_path, "Saturday"))
+    profiles_sunday = _normalize_electric_profile_columns(_read_enduser_profiles(base_path, "Sunday"))
+    profiles_holiday = _normalize_electric_profile_columns(_read_enduser_profiles(base_path, "Holiday"))
+    
+    profiles_constant = profiles_weekday.copy()
+    profiles_constant.loc[:,:] = 1
+
+    if apply_shifts:
+        profiles_weekday, profiles_saturday, profiles_sunday, profiles_holiday = (
+            module_work_shift.apply_work_shifts(
+                profiles_weekday,
+                profiles_saturday,
+                profiles_sunday,
+                profiles_holiday,
+                shift_type=2,
+                family="continuous",
+                betas={
+                    "Mechanical drives": 0.85,
+                    "Lighting": 0.7,
+                    "ICT": 0.3,
+                    "Process heat": 0.2,
+                    "Process cooling": 0.1,
+                    "Space heating": 0.3,
+                    "Space cooling": 0.3,
+                    "Hot water": 0.2,
+                },
+                ramp_minutes=(45, 45),
+                rescale=True,
+            )
+        )
+
+    """ INPUT: INDUSTRY DATA """
+    project_root = _resolve_project_root(base_path)
+    all_info_path = _resolve_existing_path(
+        [
+            project_root / "Data" / "ElectricalSpecific" / "All_info_industry_types_electrical.xlsx",
+            project_root / "ElectricalProfile" / "data" / "All_info_industry_types_electrical.xlsx",
+            project_root / "Electrical" / "All_info_industry_types_electrical.xlsx",
+        ]
+    )
+    industry_info_df = pd.read_excel(all_info_path)
+    industry_info_df.dropna(how="all", axis=0, inplace=True)
+    industry_info_df.dropna(how="all", axis=1, inplace=True)
+    industry_info_df.fillna(0, inplace=True)
+    
+
+    """ SELECT DATA FROM THE CHOSEN INDUSTRY """
+    data_industry_type = industry_info_df[industry_info_df.industry_number.eq(industry_number)]  # Filters rows with specific industry_wz
+    # Rename Mechanical drive -> Mechanical drives
     if "Mechanical drives" not in data_industry_type.columns and "Mechanical drive" in data_industry_type.columns:
         data_industry_type = data_industry_type.rename(columns={"Mechanical drive": "Mechanical drives"})
 
@@ -96,38 +157,6 @@ def _select_electric_weights(data_industry_type):
             "Mechanical drives",
         ]
     ].iloc[0].astype(float)
-    return weights
-
-
-
-def build_electric_daily_profiles(industry_number, base_path):
-    """ INPUT: END USER PROFILES """
-    profiles_weekday = _normalize_electric_profile_columns(_read_enduser_profiles(base_path, "Week_day"))
-    profiles_saturday = _normalize_electric_profile_columns(_read_enduser_profiles(base_path, "Saturday"))
-    profiles_sunday = _normalize_electric_profile_columns(_read_enduser_profiles(base_path, "Sunday"))
-    profiles_holiday = _normalize_electric_profile_columns(_read_enduser_profiles(base_path, "Holiday"))
-    
-    profiles_constant = profiles_weekday.copy()
-    profiles_constant.loc[:,:] = 1
-
-
-    """ INPUT: INDUSTRY DATA """
-    project_root = _resolve_project_root(base_path)
-    all_info_path = _resolve_existing_path(
-        [
-            project_root / "ElectricalProfile" / "data" / "All_info_industry_types_electrical.xlsx",
-            project_root / "Electrical" / "All_info_industry_types_electrical.xlsx",
-        ]
-    )
-    all_info_wz = pd.read_excel(all_info_path)
-    all_info_wz.dropna(how="all", axis=0, inplace=True)
-    all_info_wz.dropna(how="all", axis=1, inplace=True)
-    all_info_wz.fillna(0, inplace=True)
-    
-
-    """ SELECT DATA FROM THE CHOSEN INDUSTRY """
-    data_industry_type = all_info_wz[all_info_wz.industry_number.eq(industry_number)]  # Filters rows with specific industry_wz
-    weights = _select_electric_weights(data_industry_type)
  
 
     """ CREATE DAILY PROFILES """
@@ -146,6 +175,7 @@ def build_thermal_daily_profiles(industry_number, base_path):
     project_root = _resolve_project_root(base_path)
     thermal_data_path = _resolve_existing_path(
         [
+            project_root / "Data" / "HeatSpecific" / "Load_profiles_daytypes.xlsx",
             project_root / "ThermalProfile" / "data" / "Load_profiles_daytypes.xlsx",
             project_root / "Thermal" / "Load_profiles_daytypes.xlsx",
         ]
@@ -162,18 +192,19 @@ def build_thermal_daily_profiles(industry_number, base_path):
     """ INPUT: INDUSTRY DATA """
     all_info_path = _resolve_existing_path(
         [
+            project_root / "Data" / "HeatSpecific" / "All_info_industry_types_thermal.xlsx",
             project_root / "ThermalProfile" / "data" / "All_info_industry_types_thermal.xlsx",
             project_root / "Thermal" / "All_info_industry_types_thermal.xlsx",
         ]
     )
-    all_info_wz = pd.read_excel(all_info_path)
-    all_info_wz.dropna(how="all",axis=0, inplace=True)
-    all_info_wz.dropna(how="all",axis=1, inplace=True)
-    all_info_wz.fillna(0, inplace=True)
+    industry_info_df = pd.read_excel(all_info_path)
+    industry_info_df.dropna(how="all",axis=0, inplace=True)
+    industry_info_df.dropna(how="all",axis=1, inplace=True)
+    industry_info_df.fillna(0, inplace=True)
     
 
     """ SELECT DATA FROM THE CHOSEN INDUSTRY """
-    data_industry_type = all_info_wz[all_info_wz.industry_number.eq(industry_number)]  # Filters rows with specific industry_wz
+    data_industry_type = industry_info_df[industry_info_df.industry_number.eq(industry_number)]  # Filters rows with specific industry_wz
     data_industry = data_industry_type.iloc[:, 3:9]  # Extracts temperature range values
     data_industry = data_industry.astype(float)
 
