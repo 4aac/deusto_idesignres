@@ -32,24 +32,18 @@ industry_number     industry_name
 14                  Other economic sectors
 """
 
-INDUSTRY_NUMBER = 10  # Select from list above
+INDUSTRY_NUMBER = 1  # Select from list above
 YEAR = 2020          # 2018, 2019, 2020
 BASE_PATH = ""
 
 
-def run(industry_number, year, base_path_str):
-    base_path = Path(base_path_str) if base_path_str else PROJECT_ROOT
-    base_path_str = str(base_path)
+def _build_year_profile(industry_number, year, base_path_str, apply_shifts=True):
     # ========================
     #     RUN MODULE 1:
     # ========================
     weekday_profiles, saturday_profiles, sunday_profiles, holiday_profiles, constant_profiles, data_industry_type = (
-        module_1.build_electric_daily_profiles(industry_number, base_path_str)
+        module_1.build_electric_daily_profiles(industry_number, base_path_str, apply_shifts=apply_shifts)
     )
-
-    industry_type = data_industry_type["WZ_ID"][industry_number]
-    industry_name = str(data_industry_type["Name"][industry_number])
-    print(industry_name)
 
     # ========================
     #     RUN MODULE 2:
@@ -88,10 +82,35 @@ def run(industry_number, year, base_path_str):
     df_scaled = module_4.upscale_yearly(year, industry_number, df_normalized, data_industry_type)
     df_with_fluctuations = module_4.add_fluctuations(industry_number, df_scaled, data_industry_type)
 
+    return df_with_fluctuations, data_industry_type
+
+
+def run(industry_number, year, base_path_str):
+    base_path = Path(base_path_str) if base_path_str else PROJECT_ROOT
+    base_path_str = str(base_path)
+
+    df_with_fluctuations, data_industry_type = _build_year_profile(
+        industry_number, year, base_path_str, apply_shifts=True
+    )
+    df_without_shifts, _ = _build_year_profile(
+        industry_number, year, base_path_str, apply_shifts=False
+    )
+
+    industry_type = data_industry_type["WZ_ID"][industry_number]
+    industry_name = str(data_industry_type["Name"][industry_number])
+    print(industry_name)
+
     # Save load data and diagrams
     diagrams_dir = base_path / "Generated" / "diagrams"
     diagrams_dir.mkdir(parents=True, exist_ok=True)
     module_plot.year_electrical(df_with_fluctuations, industry_name, industry_type, base_path)  # Plots and saves diagram
+    module_plot.compare_year_electrical(
+        df_with_fluctuations,
+        df_without_shifts,
+        industry_name,
+        industry_type,
+        base_path,
+    )
 
     # Create the LoadData folder if it doesn't exist
     load_data_dir = base_path / "Generated" / "load_profiles"
