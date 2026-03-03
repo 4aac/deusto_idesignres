@@ -130,10 +130,19 @@ def _resolve_project_root(base_path):
     else:
         path = Path(__file__).resolve().parent.parent
 
+    if path.suffix:
+        path = path.parent
+
     name = path.name.lower()
+    parent_name = path.parent.name.lower() if path.parent else ""
+
     if name in {"electricalprofile", "thermalprofile"}:
         return path.parent
-    if name == "data" and path.parent.name.lower() in {"electricalprofile", "thermalprofile"}:
+    if name == "data":
+        if parent_name in {"electricalprofile", "thermalprofile"}:
+            return path.parent.parent
+        return path.parent
+    if parent_name == "data" and name in {"electricalspecific", "heatspecific", "general"}:
         return path.parent.parent
 
     return path
@@ -163,6 +172,8 @@ def seasonality(year, year_list, array_load_type,
     hdd_path = _resolve_existing_path(
         [
             project_root / "HeatingDegreeDays.xlsx",
+            project_root / "Data" / "ElectricalSpecific" / "HeatingDegreeDays.xlsx",
+            project_root / "Data" / "HeatSpecific" / "HeatingDegreeDays.xlsx",
             project_root / "ElectricalProfile" / "data" / "HeatingDegreeDays.xlsx",
             project_root / "ThermalProfile" / "data" / "HeatingDegreeDays.xlsx",
             project_root / "data" / "HeatingDegreeDays.xlsx",
