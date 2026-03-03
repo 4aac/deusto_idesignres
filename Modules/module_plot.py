@@ -90,12 +90,11 @@ def _format_time_labels(index, limit=None):
     return index.astype(str).tolist()
 
 
-def _plot_stack(x_labels, y_stack, labels, colors, xtick, title=None, y_max=None):
+def _plot_stack_on_ax(ax, x_labels, y_stack, labels, colors, xtick, title=None, y_max=None):
     """
-    Render a stacked area plot with consistent styling and axes.
+    Render a stacked area plot with consistent styling on the given axes.
     """
     x = np.arange(len(x_labels))
-    fig, ax = plt.subplots(figsize=(12, 4))
     ax.stackplot(x, y_stack, labels=labels, colors=colors)
 
     ax.set_xlabel("Time", fontsize=12)
@@ -123,8 +122,15 @@ def _plot_stack(x_labels, y_stack, labels, colors, xtick, title=None, y_max=None
         ax.set_ylim(bottom=0, top=y_max)
 
     ax.grid(True, alpha=0.3)
-    fig.tight_layout()
 
+
+def _plot_stack(x_labels, y_stack, labels, colors, xtick, title=None, y_max=None):
+    """
+    Render a stacked area plot with consistent styling and axes.
+    """
+    fig, ax = plt.subplots(figsize=(12, 4))
+    _plot_stack_on_ax(ax, x_labels, y_stack, labels, colors, xtick, title=title, y_max=y_max)
+    fig.tight_layout()
     return fig
 
 
@@ -164,6 +170,57 @@ def year_electrical(df, industry_name, industry_type, base_path):
 
     base_path = Path(base_path)
     output_path = base_path / "Generated" / "diagrams" / f"{industry_name}_Diagram.png"
+    fig.savefig(output_path, bbox_inches="tight")
+    plt.show()
+
+
+def compare_year_electrical(df_with_shifts, df_without_shifts, industry_name, industry_type, base_path):
+    """
+    Plot and save a two-week electrical profile comparison (with vs without shifts).
+    """
+    df_with_shifts = _flatten_columns(df_with_shifts)
+    df_without_shifts = _flatten_columns(df_without_shifts)
+    _require_columns(df_with_shifts, ELECTRIC_LABELS)
+    _require_columns(df_without_shifts, ELECTRIC_LABELS)
+
+    x_labels = _format_time_labels(df_with_shifts.index, limit=1344)
+    y_stack_with = _build_stack(df_with_shifts.iloc[:1344], ELECTRIC_LABELS)
+    y_stack_without = _build_stack(df_without_shifts.iloc[:1344], ELECTRIC_LABELS)
+
+    y_max = None
+    if y_stack_with.size or y_stack_without.size:
+        y_max = max(
+            np.nanmax(np.sum(y_stack_with, axis=0)) if y_stack_with.size else 0,
+            np.nanmax(np.sum(y_stack_without, axis=0)) if y_stack_without.size else 0,
+        ) * 1.05
+
+    fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(12, 8), sharex=True)
+    _plot_stack_on_ax(
+        axes[1],
+        x_labels,
+        y_stack_without,
+        ELECTRIC_LABELS,
+        ELECTRIC_COLORS,
+        xtick=96,
+        title="Without work shifts",
+        y_max=y_max,
+    )
+    _plot_stack_on_ax(
+        axes[0],
+        x_labels,
+        y_stack_with,
+        ELECTRIC_LABELS,
+        ELECTRIC_COLORS,
+        xtick=96,
+        title="With work shifts",
+        y_max=y_max,
+    )
+
+    fig.suptitle(f"WZ08 {industry_type} {industry_name} - Comparison", fontsize=12)
+    fig.tight_layout(rect=[0, 0.02, 1, 0.97])
+
+    base_path = Path(base_path)
+    output_path = base_path / "Generated" / "diagrams" / f"{industry_name}_Diagram_Compare_Shifts.png"
     fig.savefig(output_path, bbox_inches="tight")
     plt.show()
 
