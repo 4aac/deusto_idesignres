@@ -14,7 +14,8 @@ ELECTRIC_LABELS = [
     "Process cooling",
     "Lighting",
     "ICT",
-    "Mechanical drives",
+    "Continuous mechanical drive",
+    "Discontinuous mechanical drive",
 ]
 
 ELECTRIC_COLORS = [
@@ -25,7 +26,8 @@ ELECTRIC_COLORS = [
     (49 / 255, 164 / 255, 151 / 255),   # teal
     (254 / 255, 198 / 255, 48 / 255),   # yellow
     (146 / 255, 208 / 255, 80 / 255),   # light green
-    (93 / 255, 115 / 255, 115 / 255),   # gray
+    (93 / 255, 115 / 255, 115 / 255),   # dark gray
+    (160 / 255, 160 / 255, 160 / 255),  # light gray
 ]
 
 THERMAL_LABELS = [
@@ -174,55 +176,6 @@ def year_electrical(df, industry_name, industry_type, base_path):
     plt.show()
 
 
-def compare_year_electrical(df_with_shifts, df_without_shifts, industry_name, industry_type, base_path):
-    """
-    Plot and save a two-week electrical profile comparison (with vs without shifts).
-    """
-    df_with_shifts = _flatten_columns(df_with_shifts)
-    df_without_shifts = _flatten_columns(df_without_shifts)
-    _require_columns(df_with_shifts, ELECTRIC_LABELS)
-    _require_columns(df_without_shifts, ELECTRIC_LABELS)
-
-    x_labels = _format_time_labels(df_with_shifts.index, limit=1344)
-    y_stack_with = _build_stack(df_with_shifts.iloc[:1344], ELECTRIC_LABELS)
-    y_stack_without = _build_stack(df_without_shifts.iloc[:1344], ELECTRIC_LABELS)
-
-    y_max = None
-    if y_stack_with.size or y_stack_without.size:
-        y_max = max(
-            np.nanmax(np.sum(y_stack_with, axis=0)) if y_stack_with.size else 0,
-            np.nanmax(np.sum(y_stack_without, axis=0)) if y_stack_without.size else 0,
-        ) * 1.05
-
-    fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(12, 8), sharex=True)
-    _plot_stack_on_ax(
-        axes[1],
-        x_labels,
-        y_stack_without,
-        ELECTRIC_LABELS,
-        ELECTRIC_COLORS,
-        xtick=96,
-        title="Without work shifts",
-        y_max=y_max,
-    )
-    _plot_stack_on_ax(
-        axes[0],
-        x_labels,
-        y_stack_with,
-        ELECTRIC_LABELS,
-        ELECTRIC_COLORS,
-        xtick=96,
-        title="With work shifts",
-        y_max=y_max,
-    )
-
-    fig.suptitle(f"WZ08 {industry_type} {industry_name} - Comparison", fontsize=12)
-    fig.tight_layout(rect=[0, 0.02, 1, 0.97])
-
-    base_path = Path(base_path)
-    output_path = base_path / "Generated" / "diagrams" / f"{industry_name}_Diagram_Compare_Shifts.png"
-    fig.savefig(output_path, bbox_inches="tight")
-    plt.show()
 
 
 def day_thermal(df):
@@ -262,3 +215,4 @@ def year_thermal(df, industry_name, industry_type, base_path):
     output_path = base_path / "Generated" / "diagrams" / f"{industry_name}_Diagram.png"
     fig.savefig(output_path, bbox_inches="tight")
     plt.show()
+
