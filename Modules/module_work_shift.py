@@ -53,6 +53,8 @@ def apply_work_shifts(
             "ramp_down": 120,
             "betas": {
                 "Process heat": 0.3,
+                "Continuous mechanical drive": 0.4,
+                "Discontinuous mechanical drive": 0.4,
                 "Mechanical drives": 0.4,
                 "Space heating": 0.3,
                 "Hot water": 0.3,
@@ -67,6 +69,8 @@ def apply_work_shifts(
             "ramp_down": 30,
             "betas": {
                 "Process heat": 0.9,
+                "Continuous mechanical drive": 0.85,
+                "Discontinuous mechanical drive": 0.85,
                 "Mechanical drives": 0.85,
                 "Space heating": 0.4,
                 "Hot water": 0.5,
@@ -81,6 +85,8 @@ def apply_work_shifts(
             "ramp_down": 60,
             "betas": {
                 "Process heat": 0.8,
+                "Continuous mechanical drive": 0.9,
+                "Discontinuous mechanical drive": 0.9,
                 "Mechanical drives": 0.9,
                 "Space heating": 0.5,
                 "Hot water": 0.5,
@@ -191,7 +197,12 @@ def apply_work_shifts(
             if key == "Mechanical drive":
                 # Normalize known alternate label
                 key = "Mechanical drives"
-            beta = float(beta_map.get(key, 0.0))
+            beta = beta_map.get(key, None)
+            if beta is None and key in ("Continuous mechanical drive", "Discontinuous mechanical drive"):
+                beta = beta_map.get("Mechanical drives", 0.0)
+            if beta is None:
+                beta = 0.0
+            beta = float(beta)
             multiplier = (1.0 - beta) + beta * activity
             adjusted = out[col].astype(float).values * multiplier
             if rescale:
