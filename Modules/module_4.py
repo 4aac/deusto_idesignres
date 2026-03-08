@@ -61,8 +61,32 @@ def add_fluctuations(industry_number, df_scaled, data_industry_type):
     # Generate noise
     rand_numbers = np.random.normal(0, s_abs, len(df_scaled)).round(0)
     
-    # Add fluctuations to mechanical drives and recalculate total
+    has_cont = "Continuous mechanical drive" in df_scaled.columns
+    has_disc = "Discontinuous mechanical drive" in df_scaled.columns
+
+    if has_cont or has_disc:
+        if has_cont and has_disc:
+            total_mech = df_scaled["Continuous mechanical drive"] + df_scaled["Discontinuous mechanical drive"]
+            ratio_cont = total_mech.copy()
+            ratio_cont[total_mech > 0] = df_scaled["Continuous mechanical drive"][total_mech > 0] / total_mech[total_mech > 0]
+            ratio_cont[total_mech <= 0] = 0.5
+            ratio_disc = 1.0 - ratio_cont
+
+            df_scaled["Continuous mechanical drive"] = (
+                df_scaled["Continuous mechanical drive"] + rand_numbers * ratio_cont
+            )
+            df_scaled["Discontinuous mechanical drive"] = (
+                df_scaled["Discontinuous mechanical drive"] + rand_numbers * ratio_disc
+            )
+        else:
+            target_col = "Continuous mechanical drive" if has_cont else "Discontinuous mechanical drive"
+            df_scaled[target_col] = df_scaled[target_col] + rand_numbers
+
+        df_scaled["Total"] = df_scaled["Total"] + rand_numbers
+        return df_scaled
+
+    # Fallback to aggregated mechanical drives
     df_scaled["Mechanical drives"] = df_scaled["Mechanical drives"] + rand_numbers
     df_scaled["Total"] = df_scaled["Total"] + rand_numbers
-    
+
     return df_scaled

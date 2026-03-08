@@ -79,12 +79,6 @@ def _apply_profile_weights(profiles, weights):
 def _normalize_electric_profile_columns(df):
     df = df.copy()
 
-    if "Continuous mechanical drive" in df.columns or "Discontinuous mechanical drive" in df.columns:
-        cont = df["Continuous mechanical drive"] if "Continuous mechanical drive" in df.columns else 0
-        disc = df["Discontinuous mechanical drive"] if "Discontinuous mechanical drive" in df.columns else 0
-        df["Mechanical drives"] = cont + disc
-        df = df.drop(columns=[c for c in ["Continuous mechanical drive", "Discontinuous mechanical drive"] if c in df.columns])
-
     if "Mechanical drive" in df.columns and "Mechanical drives" not in df.columns:
         df = df.rename(columns={"Mechanical drive": "Mechanical drives"})
     return df
@@ -110,6 +104,8 @@ def build_electric_daily_profiles(industry_number, base_path, apply_shifts=True)
                 shift_type=2,
                 family="continuous",
                 betas={
+                    "Continuous mechanical drive": 0.85,
+                    "Discontinuous mechanical drive": 0.85,
                     "Mechanical drives": 0.85,
                     "Lighting": 0.7,
                     "ICT": 0.3,
@@ -145,18 +141,53 @@ def build_electric_daily_profiles(industry_number, base_path, apply_shifts=True)
     if "Mechanical drives" not in data_industry_type.columns and "Mechanical drive" in data_industry_type.columns:
         data_industry_type = data_industry_type.rename(columns={"Mechanical drive": "Mechanical drives"})
 
-    weights = data_industry_type[
-        [
-            "Space heating",
-            "Hot water",
-            "Process heat",
-            "Space cooling",
-            "Process cooling",
-            "Lighting",
-            "ICT",
-            "Mechanical drives",
-        ]
-    ].iloc[0].astype(float)
+    weight_columns = [
+        "Space heating",
+        "Hot water",
+        "Process heat",
+        "Space cooling",
+        "Process cooling",
+        "Lighting",
+        "ICT",
+    ]
+    mech_col = None
+    if "Mechanical drives" in data_industry_type.columns:
+        mech_col = "Mechanical drives"
+    elif "Mechanical drive" in data_industry_type.columns:
+        mech_col = "Mechanical drive"
+    if mech_col:
+        weight_columns.append(mech_col)
+
+    weights = data_industry_type[weight_columns].iloc[0].astype(float)
+
+    has_cont = "Continuous mechanical drive" in profiles_weekday.columns
+    has_disc = "Discontinuous mechanical drive" in profiles_weekday.columns
+    if mech_col and (has_cont or has_disc) and mech_col in weights.index:
+        mech_total = float(weights[mech_col])
+        weights = weights.drop(labels=[mech_col])
+        if has_cont and has_disc:
+            cont_sum = float(profiles_weekday["Continuous mechanical drive"].sum())
+            disc_sum = float(profiles_weekday["Discontinuous mechanical drive"].sum())
+            denom = cont_sum + disc_sum
+            if denom > 0:
+                cont_ratio = cont_sum / denom
+                disc_ratio = disc_sum / denom
+            else:
+                cont_ratio = 0.5
+                disc_ratio = 0.5
+        elif has_cont:
+            cont_ratio = 1.0
+            disc_ratio = 0.0
+        else:
+            cont_ratio = 0.0
+            disc_ratio = 1.0
+
+        if has_cont:
+            weights["Continuous mechanical drive"] = mech_total * cont_ratio
+        if has_disc:
+            weights["Discontinuous mechanical drive"] = mech_total * disc_ratio
+
+    weights = weights.reindex(profiles_weekday.columns)
  
 
     """ CREATE DAILY PROFILES """
@@ -170,7 +201,7 @@ def build_electric_daily_profiles(industry_number, base_path, apply_shifts=True)
    
    
     
-def build_thermal_daily_profiles(industry_number, base_path):
+def build_thermal_daily_profiles(industry_number, base_path, apply_shifts=True):
     """ INPUT: END USER PROFILES """
     project_root = _resolve_project_root(base_path)
     thermal_data_path = _resolve_existing_path(
@@ -226,5 +257,26 @@ def build_thermal_daily_profiles(industry_number, base_path):
     sunday_profiles = _apply_profile_weights(profiles_sunday, weights).rename(columns=thermal_rename)
     holiday_profiles = _apply_profile_weights(profiles_holiday, weights).rename(columns=thermal_rename)
     constant_profiles = _apply_profile_weights(profiles_constant, weights).rename(columns=thermal_rename)
+
+    if apply_shifts:
+        thermal_betas = {
+            "< 100 °C": 0.3,
+            "100 °C - 500 °C": 0.3,
+            "500 °C - 1000 °C": 0.3,
+            ">1000 °C": 0.3,
+        }
+        weekday_profiles, saturday_profiles, sunday_profiles, holiday_profiles = (
+            module_work_shift.apply_work_shifts(
+                weekday_profiles,
+                saturday_profiles,
+                sunday_profiles,
+                holiday_profiles,
+                shift_type=2,
+                family="continuous",
+                betas=thermal_betas,
+                ramp_minutes=(45, 45),
+                rescale=True,
+            )
+        )
     
     return weekday_profiles, saturday_profiles, sunday_profiles, holiday_profiles, constant_profiles, data_industry_type
