@@ -37,12 +37,12 @@ YEAR = 2020          # 2018, 2019, 2020
 BASE_PATH = ""
 
 
-def _build_year_profile(industry_number, year, base_path_str, apply_shifts=True):
+def _build_year_profile(industry_number, year, base_path_str):
     # ========================
     #     RUN MODULE 1:
     # ========================
     weekday_profiles, saturday_profiles, sunday_profiles, holiday_profiles, constant_profiles, data_industry_type = (
-        module_1.build_electric_daily_profiles(industry_number, base_path_str, apply_shifts=apply_shifts)
+        module_1.build_electric_daily_profiles(industry_number, base_path_str)
     )
 
     # ========================
@@ -90,10 +90,7 @@ def run(industry_number, year, base_path_str):
     base_path_str = str(base_path)
 
     df_with_fluctuations, data_industry_type = _build_year_profile(
-        industry_number, year, base_path_str, apply_shifts=True
-    )
-    df_without_shifts, _ = _build_year_profile(
-        industry_number, year, base_path_str, apply_shifts=False
+        industry_number, year, base_path_str
     )
 
     industry_type = data_industry_type["WZ_ID"][industry_number]
@@ -104,13 +101,6 @@ def run(industry_number, year, base_path_str):
     diagrams_dir = base_path / "Generated" / "diagrams"
     diagrams_dir.mkdir(parents=True, exist_ok=True)
     module_plot.year_electrical(df_with_fluctuations, industry_name, industry_type, base_path)  # Plots and saves diagram
-    module_plot.compare_year_electrical(
-        df_with_fluctuations,
-        df_without_shifts,
-        industry_name,
-        industry_type,
-        base_path,
-    )
 
     # Create the LoadData folder if it doesn't exist
     load_data_dir = base_path / "Generated" / "load_profiles"
@@ -126,10 +116,11 @@ def run(industry_number, year, base_path_str):
                 "Process cooling",
                 "Lighting",
                 "ICT",
-                "Mechanical drives",
+                "Continuous mechanical drive",
+                "Discontinuous mechanical drive",
                 "Total",
             ],
-            ["in kW"] * 9,
+            ["in kW"] * 10,
         ],
         names=("Application", "Unit"),
     )
