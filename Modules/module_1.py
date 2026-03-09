@@ -4,51 +4,15 @@ from pathlib import Path
 from Modules import module_work_shift
 
 
-def _resolve_project_root(base_path):
-    if base_path:
-        path = Path(base_path)
-    else:
-        path = Path(__file__).resolve().parent.parent
-
-    if path.suffix:
-        path = path.parent
-
-    name = path.name.lower()
-    parent_name = path.parent.name.lower() if path.parent else ""
-
-    if name in {"electricalprofile", "thermalprofile"}:
-        return path.parent
-    if name == "data":
-        if parent_name in {"electricalprofile", "thermalprofile"}:
-            return path.parent.parent
-        return path.parent
-    if parent_name == "data" and name in {"electricalspecific", "heatspecific", "general"}:
-        return path.parent.parent
-
-    return path
-
-
-def _resolve_existing_path(candidates):
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    raise FileNotFoundError(
-        "None of the expected data files exist: " + ", ".join(str(c) for c in candidates)
-    )
-
-
 def _read_enduser_profiles(base_path, sheet_name):
     """
     Read an end-user profile sheet and drop empty rows.
     """
-    project_root = _resolve_project_root(base_path)
-    data_path = _resolve_existing_path(
-        [
-            project_root / "Data" / "ElectricalSpecific" / "Load_profiles_enduser.xlsx",
-            project_root / "ElectricalProfile" / "data" / "Load_profiles_enduser.xlsx",
-            project_root / "Electrical" / "Load_profiles_enduser.xlsx",
-        ]
-    )
+    root = Path(base_path) if base_path else Path(__file__).resolve().parent.parent
+    if root.suffix:
+        root = root.parent
+        
+    data_path = root / "Data" / "ElectricalSpecific" / "Load_profiles_enduser.xlsx"
     df = pd.read_excel(
         data_path,
         index_col=0,
@@ -76,20 +40,12 @@ def _apply_profile_weights(profiles, weights):
     return y
 
 
-def _normalize_electric_profile_columns(df):
-    df = df.copy()
-
-    if "Mechanical drive" in df.columns and "Mechanical drives" not in df.columns:
-        df = df.rename(columns={"Mechanical drive": "Mechanical drives"})
-    return df
-
-
 def build_electric_daily_profiles(industry_number, base_path, apply_shifts=True):
     """ INPUT: END USER PROFILES """
-    profiles_weekday = _normalize_electric_profile_columns(_read_enduser_profiles(base_path, "Week_day"))
-    profiles_saturday = _normalize_electric_profile_columns(_read_enduser_profiles(base_path, "Saturday"))
-    profiles_sunday = _normalize_electric_profile_columns(_read_enduser_profiles(base_path, "Sunday"))
-    profiles_holiday = _normalize_electric_profile_columns(_read_enduser_profiles(base_path, "Holiday"))
+    profiles_weekday = _read_enduser_profiles(base_path, "Week_day")
+    profiles_saturday = _read_enduser_profiles(base_path, "Saturday")
+    profiles_sunday = _read_enduser_profiles(base_path, "Sunday")
+    profiles_holiday = _read_enduser_profiles(base_path, "Holiday")
     
     profiles_constant = profiles_weekday.copy()
     profiles_constant.loc[:,:] = 1
@@ -121,14 +77,10 @@ def build_electric_daily_profiles(industry_number, base_path, apply_shifts=True)
         )
 
     """ INPUT: INDUSTRY DATA """
-    project_root = _resolve_project_root(base_path)
-    all_info_path = _resolve_existing_path(
-        [
-            project_root / "Data" / "ElectricalSpecific" / "All_info_industry_types_electrical.xlsx",
-            project_root / "ElectricalProfile" / "data" / "All_info_industry_types_electrical.xlsx",
-            project_root / "Electrical" / "All_info_industry_types_electrical.xlsx",
-        ]
-    )
+    root = Path(base_path) if base_path else Path(__file__).resolve().parent.parent
+    if root.suffix:
+        root = root.parent
+    all_info_path = root / "Data" / "ElectricalSpecific" / "All_info_industry_types_electrical.xlsx"
     industry_info_df = pd.read_excel(all_info_path)
     industry_info_df.dropna(how="all", axis=0, inplace=True)
     industry_info_df.dropna(how="all", axis=1, inplace=True)
@@ -203,14 +155,10 @@ def build_electric_daily_profiles(industry_number, base_path, apply_shifts=True)
     
 def build_thermal_daily_profiles(industry_number, base_path, apply_shifts=True):
     """ INPUT: END USER PROFILES """
-    project_root = _resolve_project_root(base_path)
-    thermal_data_path = _resolve_existing_path(
-        [
-            project_root / "Data" / "HeatSpecific" / "Load_profiles_daytypes.xlsx",
-            project_root / "ThermalProfile" / "data" / "Load_profiles_daytypes.xlsx",
-            project_root / "Thermal" / "Load_profiles_daytypes.xlsx",
-        ]
-    )
+    root = Path(base_path) if base_path else Path(__file__).resolve().parent.parent
+    if root.suffix:
+        root = root.parent
+    thermal_data_path = root / "Data" / "HeatSpecific" / "Load_profiles_daytypes.xlsx"
     profiles_weekday = pd.read_excel(thermal_data_path, sheet_name="Week_day", index_col=0)
     profiles_saturday = pd.read_excel(thermal_data_path, sheet_name="Saturday", index_col=0) 
     profiles_sunday = pd.read_excel(thermal_data_path, sheet_name="Sunday", index_col=0)
@@ -221,13 +169,10 @@ def build_thermal_daily_profiles(industry_number, base_path, apply_shifts=True):
     
     
     """ INPUT: INDUSTRY DATA """
-    all_info_path = _resolve_existing_path(
-        [
-            project_root / "Data" / "HeatSpecific" / "All_info_industry_types_thermal.xlsx",
-            project_root / "ThermalProfile" / "data" / "All_info_industry_types_thermal.xlsx",
-            project_root / "Thermal" / "All_info_industry_types_thermal.xlsx",
-        ]
-    )
+    root = Path(base_path) if base_path else Path(__file__).resolve().parent.parent
+    if root.suffix:
+        root = root.parent
+    all_info_path = root / "Data" / "HeatSpecific" / "All_info_industry_types_thermal.xlsx"
     industry_info_df = pd.read_excel(all_info_path)
     industry_info_df.dropna(how="all",axis=0, inplace=True)
     industry_info_df.dropna(how="all",axis=1, inplace=True)

@@ -124,39 +124,6 @@ def build_load_type_calendar(year):
 
 
 
-def _resolve_project_root(base_path):
-    if base_path:
-        path = Path(base_path)
-    else:
-        path = Path(__file__).resolve().parent.parent
-
-    if path.suffix:
-        path = path.parent
-
-    name = path.name.lower()
-    parent_name = path.parent.name.lower() if path.parent else ""
-
-    if name in {"electricalprofile", "thermalprofile"}:
-        return path.parent
-    if name == "data":
-        if parent_name in {"electricalprofile", "thermalprofile"}:
-            return path.parent.parent
-        return path.parent
-    if parent_name == "data" and name in {"electricalspecific", "heatspecific", "general"}:
-        return path.parent.parent
-
-    return path
-
-
-def _resolve_existing_path(candidates):
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    raise FileNotFoundError(
-        "None of the expected data files exist: " + ", ".join(str(c) for c in candidates)
-    )
-
-
 def seasonality(year, year_list, array_load_type, 
                 weekday_adjusted, saturday_adjusted, sunday_adjusted, holiday_adjusted, constant_adjusted, 
                 path):
@@ -168,17 +135,10 @@ def seasonality(year, year_list, array_load_type,
     - Low HDD in summer → low heating demand
     """
     # Read heating degree day factors by month
-    project_root = _resolve_project_root(path)
-    hdd_path = _resolve_existing_path(
-        [
-            project_root / "HeatingDegreeDays.xlsx",
-            project_root / "Data" / "ElectricalSpecific" / "HeatingDegreeDays.xlsx",
-            project_root / "Data" / "HeatSpecific" / "HeatingDegreeDays.xlsx",
-            project_root / "ElectricalProfile" / "data" / "HeatingDegreeDays.xlsx",
-            project_root / "ThermalProfile" / "data" / "HeatingDegreeDays.xlsx",
-            project_root / "data" / "HeatingDegreeDays.xlsx",
-        ]
-    )
+    root = Path(path) if path else Path(__file__).resolve().parent.parent
+    if root.suffix:
+        root = root.parent
+    hdd_path = root / "Data" / "ElectricalSpecific" / "HeatingDegreeDays.xlsx"
     month_factor = pd.read_excel(hdd_path, sheet_name="HDD")
     month_factor = month_factor.iloc[0][1:13]  # Extract 12 monthly factors
     
