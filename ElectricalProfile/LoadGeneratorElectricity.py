@@ -30,10 +30,42 @@ industry_number     industry_name
 12                  Machinery manufacturing
 13                  Vehicle manufacturing
 14                  Other economic sectors
+
+---
+
+country_code        country_name
+AT                  Austria
+BE                  Belgium
+BG                  Bulgaria
+CY                  Cyprus
+CZ                  Czech Republic
+DE                  Germany
+DK                  Denmark
+EE                  Estonia
+EL                  Greece
+ES                  Spain
+FI                  Finland
+FR                  France
+HR                  Croatia
+HU                  Hungary
+IE                  Ireland
+IT                  Italy
+LT                  Lithuania
+LU                  Luxembourg
+LV                  Latvia
+MT                  Malta
+NL                  Netherlands
+PL                  Poland
+PT                  Portugal
+RO                  Romania
+SE                  Sweden
+SI                  Slovenia
+SK                  Slovakia
 """
 
-INDUSTRY_NUMBER = 1  # Select from list above
-YEAR = 2020          # 2018, 2019, 2020
+INDUSTRY_NUMBER = 1     # Select from list above
+YEAR = 2020             # 2013-2023
+COUNTRY_CODE = "ES"     # Select a member from the EU
 BASE_PATH = ""
 
 
@@ -128,7 +160,7 @@ def run(industry_number, year, base_path_str):
     df_out = df_with_fluctuations.copy()
     df_out.columns = columns
     df_out.index.name = "Time"
-    df_out.to_excel(load_data_dir / f"{industry_name} WZ08 {industry_type}.xlsx", index=True)
+    df_out.to_excel(load_data_dir / f"iDesign_RES_{industry_name}_{industry_type}-{COUNTRY_CODE}.xlsx", index=True)
 
     return df_out
 

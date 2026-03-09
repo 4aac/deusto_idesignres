@@ -212,7 +212,7 @@ def year_thermal(df, industry_name, industry_type, base_path):
     )
 
     base_path = Path(base_path)
-    output_path = base_path / "Generated" / "diagrams" / f"{industry_name}_Diagram.png"
+    output_path = base_path / "Generated" / "diagrams" / f"iDesign_RES_{industry_name}_{industry_type}_Diagram.png"
     fig.savefig(output_path, bbox_inches="tight")
     plt.show()
 
