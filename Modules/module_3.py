@@ -4,7 +4,6 @@ import holidays
 from pathlib import Path
 
 
-
 def build_load_type_calendar(year):
     """
     Build a calendar of daily load pattern types for a full year.
@@ -155,8 +154,11 @@ def seasonality(year, year_list, array_load_type,
     # Apply seasonal adjustment for each day
     for i in range(len(year_list)):
         dayprofile = dict_load_type[array_load_type[i]].copy()
-        # Multiply space heating by monthly HDD factor
-        dayprofile["Space heating"] = dayprofile["Space heating"] * month_factor.iloc[year_list[i].month - 1]
+        # Multiply heating-related load by monthly HDD factor
+        if "Space heating" in dayprofile.columns:
+            dayprofile["Space heating"] = dayprofile["Space heating"] * month_factor.iloc[year_list[i].month - 1]
+        elif "Low-enthalpy heat" in dayprofile.columns:
+            dayprofile["Low-enthalpy heat"] = dayprofile["Low-enthalpy heat"] * month_factor.iloc[year_list[i].month - 1]
         profiles.append(dayprofile)
 
     df = pd.concat(profiles, ignore_index=True)

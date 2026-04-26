@@ -16,20 +16,17 @@ from Modules import module_1, module_2, module_3, module_4, module_plot
 ========================
 
 industry_number     industry_name
-1                   Mining and quarrying of stones and earth
-2                   Food and tobacco
-3                   Paper manufacturing
-4                   Basic chemicals
-5                   Other chemical industry
-6                   Rubber and plastic goods
-7                   Glass and ceramics
-8                   Processing of stone and earth
-9                   Metal production
-10                  Non-ferrous metals and foundries
-11                  Metal processing
-12                  Machinery manufacturing
-13                  Vehicle manufacturing
-14                  Other economic sectors
+1                   ISI (Iron and steel)
+2                   NFM (Non-ferrous metals)
+3                   CHI (Chemicals)
+4                   NMM (Non-metallic minerals)
+5                   PPA (Pulp, paper and printing)
+6                   FBT (Food, beverages and tobacco)
+7                   TRE (Transport equipment)
+8                   MAE (Machinery equipment)
+9                   TEL (Textiles and leather)
+10                  WWP (Wood and wood products)
+11                  OIS (Other industrial sectors)
 
 ---
 
@@ -63,18 +60,40 @@ SI                  Slovenia
 SK                  Slovakia
 """
 
-INDUSTRY_NUMBER = 1     # Select from list above
-YEAR = 2020             # 2013-2023
-COUNTRY_CODE = "ES"     # Select a member from the EU
+INDUSTRY_NUMBER = 1        # Select from list above
+COUNTRY_CODE = "ES"        # Select a member from the EU
+YEAR = 2020                # 2013-2023
+WEIGHTS_MODE = "unsummed"  # "summed" or "unsummed"
 BASE_PATH = ""
 
 
-def _build_year_profile(industry_number, year, base_path_str):
+SECTOR_NAME_BY_CODE = {
+    "ISI": "Iron and steel",
+    "NFM": "Non-ferrous metals",
+    "CHI": "Chemicals",
+    "NMM": "Non-metallic minerals",
+    "PPA": "Pulp, paper and printing",
+    "FBT": "Food, beverages and tobacco",
+    "TRE": "Transport equipment",
+    "MAE": "Machinery equipment",
+    "TEL": "Textiles and leather",
+    "WWP": "Wood and wood products",
+    "OIS": "Other industrial sectors",
+}
+
+
+def _build_year_profile(industry_number, year, country_code, base_path_str, weights_mode="summed"):
     # ========================
     #     RUN MODULE 1:
     # ========================
     weekday_profiles, saturday_profiles, sunday_profiles, holiday_profiles, constant_profiles, data_industry_type = (
-        module_1.build_electric_daily_profiles(industry_number, base_path_str)
+        module_1.build_electric_daily_profiles(
+            industry_number,
+            year,
+            country_code,
+            base_path_str,
+            weights_mode=weights_mode,
+        )
     )
 
     # ========================
@@ -117,47 +136,45 @@ def _build_year_profile(industry_number, year, base_path_str):
     return df_with_fluctuations, data_industry_type
 
 
-def run(industry_number, year, base_path_str):
+def run(industry_number, year, base_path_str, weights_mode=WEIGHTS_MODE):
     base_path = Path(base_path_str) if base_path_str else PROJECT_ROOT
     base_path_str = str(base_path)
 
     df_with_fluctuations, data_industry_type = _build_year_profile(
-        industry_number, year, base_path_str
+        industry_number, year, COUNTRY_CODE, base_path_str, weights_mode=weights_mode
     )
 
-    industry_type = data_industry_type["WZ_ID"][industry_number]
-    industry_name = str(data_industry_type["Name"][industry_number])
+    industry_type = module_1.SECTOR_CODE_BY_INDUSTRY_NUMBER.get(int(industry_number), str(industry_number))
+    industry_name = SECTOR_NAME_BY_CODE.get(industry_type, industry_type)
     print(industry_name)
 
     # Save load data and diagrams
     diagrams_dir = base_path / "Generated" / "diagrams"
     diagrams_dir.mkdir(parents=True, exist_ok=True)
-    module_plot.year_electrical(df_with_fluctuations, industry_name, industry_type, base_path)  # Plots and saves diagram
+    if weights_mode == "unsummed":
+        module_plot.year_electrical_unsummed(
+            df_with_fluctuations,
+            industry_name,
+            industry_type,
+            COUNTRY_CODE,
+            year,
+            base_path,
+        )
+    else:
+        module_plot.year_electrical_summed(df_with_fluctuations, industry_name, industry_type, base_path)
 
     # Create the LoadData folder if it doesn't exist
     load_data_dir = base_path / "Generated" / "load_profiles"
     load_data_dir.mkdir(parents=True, exist_ok=True)
 
+    application_columns = [c for c in df_with_fluctuations.columns if c != "Total"]
+    ordered_columns = application_columns + ["Total"]
     columns = pd.MultiIndex.from_arrays(
-        [
-            [
-                "Space heating",
-                "Hot water",
-                "Process heat",
-                "Space cooling",
-                "Process cooling",
-                "Lighting",
-                "ICT",
-                "Continuous mechanical drive",
-                "Discontinuous mechanical drive",
-                "Total",
-            ],
-            ["in kW"] * 10,
-        ],
+        [ordered_columns, ["in kW"] * len(ordered_columns)],
         names=("Application", "Unit"),
     )
 
-    df_out = df_with_fluctuations.copy()
+    df_out = df_with_fluctuations[ordered_columns].copy()
     df_out.columns = columns
     df_out.index.name = "Time"
     df_out.to_excel(load_data_dir / f"iDesign_RES_{industry_name}_{industry_type}-{COUNTRY_CODE}.xlsx", index=True)
@@ -166,4 +183,4 @@ def run(industry_number, year, base_path_str):
 
 
 if __name__ == "__main__":
-    run(INDUSTRY_NUMBER, YEAR, BASE_PATH)
+    run(INDUSTRY_NUMBER, YEAR, BASE_PATH, WEIGHTS_MODE)

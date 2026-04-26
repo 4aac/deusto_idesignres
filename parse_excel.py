@@ -1,5 +1,25 @@
 from pathlib import Path
 import pandas as pd
+from openpyxl import load_workbook
+
+
+CORE_VARIABLES = [
+    "Lighting",
+    "Air compressors",
+    "Motor drives",
+    "Fans and pumps",
+    "Low-enthalpy heat",
+]
+
+# Update these sets/prefixes if IDEES introduces new palette variants.
+COLOR_GROUPS = {
+    "parent": {"4F81BD", "006EBE"},
+    "detail": {"974706", "964605", "963732"},
+}
+COLOR_GROUP_PREFIXES = {
+    "parent": ("4F81", "006E"),
+    "detail": ("9747", "9646", "9637"),
+}
 
 
 def _default_jrc_idees_path(jrc_idees_path=None):
@@ -148,6 +168,105 @@ def _row_values(df, row_idx, col_indexes):
     return values
 
 
+def _font_rgb_6(color):
+    if color is None:
+        return None
+    if color.type != "rgb" or not color.rgb:
+        return None
+    rgb = str(color.rgb).upper()
+    if len(rgb) >= 6:
+        return rgb[-6:]
+    return None
+
+
+def _label_color(ws, row_idx):
+    if ws is None:
+        return None
+    # DataFrame rows are 0-based, openpyxl rows are 1-based.
+    return _font_rgb_6(ws.cell(row=row_idx + 1, column=1).font.color)
+
+
+def _color_group(color_hex):
+    if not color_hex:
+        return None
+    clean = str(color_hex).upper()[-6:]
+    for group_name, values in COLOR_GROUPS.items():
+        if clean in values:
+            return group_name
+    for group_name, prefixes in COLOR_GROUP_PREFIXES.items():
+        if any(clean.startswith(prefix) for prefix in prefixes):
+            return group_name
+    return None
+
+
+def _select_non_core_rows_by_color(row_items):
+    """
+    Color rule for non-core rows:
+    - blue + next blue  -> keep blue row
+    - blue + next brown -> keep following brown rows until next blue
+    - any other case    -> keep current row
+    """
+    selected = []
+    i = 0
+    while i < len(row_items):
+        current = row_items[i]
+        current_group = _color_group(current["color"])
+
+        if current_group == "parent":
+            if i + 1 < len(row_items):
+                next_group = _color_group(row_items[i + 1]["color"])
+                if next_group == "parent":
+                    selected.append(current)
+                    i += 1
+                    continue
+                if next_group == "detail":
+                    j = i + 1
+                    while j < len(row_items) and _color_group(row_items[j]["color"]) == "detail":
+                        selected.append(row_items[j])
+                        j += 1
+                    i = j
+                    continue
+
+            selected.append(current)
+            i += 1
+            continue
+
+        selected.append(current)
+        i += 1
+
+    return selected
+
+
+def _extract_block_variables(df, ws, start_row, end_row, col_indexes):
+    core_rows = []
+    non_core_rows = []
+
+    for r in range(start_row, end_row + 1):
+        label = _to_clean_str(df.iat[r, 0])
+        if not label:
+            continue
+
+        item = {
+            "label": label,
+            "values": _row_values(df, r, col_indexes),
+            "color": _label_color(ws, r),
+        }
+        if label in CORE_VARIABLES:
+            core_rows.append(item)
+        else:
+            non_core_rows.append(item)
+
+    variables = {}
+    for item in core_rows:
+        variables[item["label"]] = item["values"]
+
+    selected_non_core = _select_non_core_rows_by_color(non_core_rows)
+    for item in selected_non_core:
+        variables[item["label"]] = item["values"]
+
+    return variables
+
+
 def _values_by_year(years, values):
     return {int(year): values[idx] for idx, year in enumerate(years) if idx < len(values)}
 
@@ -217,7 +336,7 @@ def _is_excluded_sector_name(sector_name):
     return sector_name.strip().lower() == "integrated steelworks"
 
 
-def extract_market_share_blocks_by_lighting(df):
+def extract_market_share_blocks_by_lighting(df, ws=None):
     """
     Extrae bloques entre 'Market shares of energy uses ...' y 'Energy intensity ...'.
     Cada bloque empieza en 'Lighting' y se nombra con la fila anterior no vacía.
@@ -264,16 +383,7 @@ def extract_market_share_blocks_by_lighting(df):
             if end_row < start_row:
                 continue
 
-            variables = {}
-            for r in range(start_row, end_row + 1):
-                label = _to_clean_str(df.iat[r, 0])
-                if not label:
-                    continue
-                if " - " in label:
-                    continue
-
-                values = _row_values(df, r, col_indexes)
-                variables[label] = values
+            variables = _extract_block_variables(df, ws, start_row, end_row, col_indexes)
 
             if not variables:
                 continue
@@ -420,11 +530,14 @@ def extract_country_fec_electric_arc(country_code="AT", jrc_idees_path=None):
     result = {}
 
     with pd.ExcelFile(industry_file) as xls:
+        wb = load_workbook(industry_file, data_only=True)
         fec_sheet_names = _iter_fec_sheet_names(xls)
         for sheet_name in fec_sheet_names:
             sheet_df = pd.read_excel(xls, sheet_name=sheet_name, header=None)
-            blocks = extract_market_share_blocks_by_lighting(sheet_df)
+            ws = wb[sheet_name] if sheet_name in wb.sheetnames else None
+            blocks = extract_market_share_blocks_by_lighting(sheet_df, ws=ws)
             result[sheet_name] = blocks
+        wb.close()
 
     return result
 

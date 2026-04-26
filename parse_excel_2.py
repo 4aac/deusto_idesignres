@@ -1,5 +1,6 @@
 from pathlib import Path
 import pandas as pd
+from openpyxl import load_workbook
 
 
 CORE_VARIABLES = [
@@ -10,6 +11,16 @@ CORE_VARIABLES = [
     "Low-enthalpy heat",
 ]
 OTHER_ROW_NAME = "Others (sum mean)"
+
+# Update these sets/prefixes if IDEES introduces new palette variants.
+COLOR_GROUPS = {
+    "parent": {"4F81BD", "006EBE"},
+    "detail": {"974706", "964605", "963732"},
+}
+COLOR_GROUP_PREFIXES = {
+    "parent": ("4F81", "006E"),
+    "detail": ("9747", "9646", "9637"),
+}
 
 
 def _default_jrc_idees_path(jrc_idees_path=None):
@@ -61,6 +72,105 @@ def _row_values(df, row_idx, col_indexes):
     return values
 
 
+def _font_rgb_6(color):
+    if color is None:
+        return None
+    if color.type != "rgb" or not color.rgb:
+        return None
+    rgb = str(color.rgb).upper()
+    if len(rgb) >= 6:
+        return rgb[-6:]
+    return None
+
+
+def _label_color(ws, row_idx):
+    if ws is None:
+        return None
+    # DataFrame row index is 0-based, openpyxl rows are 1-based.
+    return _font_rgb_6(ws.cell(row=row_idx + 1, column=1).font.color)
+
+
+def _color_group(color_hex):
+    if not color_hex:
+        return None
+    clean = str(color_hex).upper()[-6:]
+    for group_name, values in COLOR_GROUPS.items():
+        if clean in values:
+            return group_name
+    for group_name, prefixes in COLOR_GROUP_PREFIXES.items():
+        if any(clean.startswith(prefix) for prefix in prefixes):
+            return group_name
+    return None
+
+
+def _select_non_core_rows_by_color(row_items):
+    """
+    Color rule for non-core rows:
+    - blue + next blue  -> keep blue row
+    - blue + next brown -> keep following brown rows until next blue
+    - any other case    -> keep current row
+    """
+    selected = []
+    i = 0
+    while i < len(row_items):
+        current = row_items[i]
+        current_group = _color_group(current["color"])
+
+        if current_group == "parent":
+            if i + 1 < len(row_items):
+                next_group = _color_group(row_items[i + 1]["color"])
+                if next_group == "parent":
+                    selected.append(current)
+                    i += 1
+                    continue
+                if next_group == "detail":
+                    j = i + 1
+                    while j < len(row_items) and _color_group(row_items[j]["color"]) == "detail":
+                        selected.append(row_items[j])
+                        j += 1
+                    i = j
+                    continue
+
+            selected.append(current)
+            i += 1
+            continue
+
+        selected.append(current)
+        i += 1
+
+    return selected
+
+
+def _extract_block_variables(df, ws, start_row, end_row, col_indexes):
+    core_rows = []
+    non_core_rows = []
+
+    for r in range(start_row, end_row + 1):
+        label = _clean_str(df.iat[r, 0])
+        if not label:
+            continue
+
+        item = {
+            "label": label,
+            "values": _row_values(df, r, col_indexes),
+            "color": _label_color(ws, r),
+        }
+        if label in CORE_VARIABLES:
+            core_rows.append(item)
+        else:
+            non_core_rows.append(item)
+
+    variables = {}
+    for item in core_rows:
+        variables[item["label"]] = item["values"]
+
+    selected_non_core = _select_non_core_rows_by_color(non_core_rows)
+    for item in selected_non_core:
+        variables[item["label"]] = item["values"]
+
+    return variables
+
+
 def _iter_fec_sheet_names(xls):
     index_sheet_name = next(
         (name for name in xls.sheet_names if name.strip().lower() == "index"),
@@ -110,7 +220,7 @@ def _previous_non_empty_label_row(df, start_row, min_row):
     return None
 
 
-def extract_subsector_blocks(df):
+def extract_subsector_blocks(df, ws=None):
     """
     Extract blocks between 'Market shares...' and 'Energy intensity...'.
     A block starts at each 'Lighting' row and uses the previous non-empty row
@@ -151,17 +261,7 @@ def extract_subsector_blocks(df):
             if end_row < start_row:
                 continue
 
-            variables = {}
-            for r in range(start_row, end_row + 1):
-                label = _clean_str(df.iat[r, 0])
-                if not label:
-                    continue
-
-                # Rule from previous requirement: ignore labels with " - "
-                if " - " in label:
-                    continue
-
-                variables[label] = _row_values(df, r, col_indexes)
+            variables = _extract_block_variables(df, ws, start_row, end_row, col_indexes)
 
             if not variables:
                 continue
@@ -194,11 +294,14 @@ def read_country_sector_blocks(country_code, jrc_idees_path=None):
     blocks_by_sector = {}
 
     with pd.ExcelFile(industry_file) as xls:
+        wb = load_workbook(industry_file, data_only=True)
         for fec_sheet_name in _iter_fec_sheet_names(xls):
             df = pd.read_excel(xls, sheet_name=fec_sheet_name, header=None)
-            blocks = extract_subsector_blocks(df)
+            ws = wb[fec_sheet_name] if fec_sheet_name in wb.sheetnames else None
+            blocks = extract_subsector_blocks(df, ws=ws)
             sector_name = fec_sheet_name.replace("_fec", "")
             blocks_by_sector[sector_name] = blocks
+        wb.close()
 
     return blocks_by_sector
 

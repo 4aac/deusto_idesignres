@@ -1,35 +1,14 @@
 import numpy as np
 
 
-def _resolve_energy_column(year, columns):
-    prefixes = ["Energy consumption ", "Energieverbrauch "]
-    for prefix in prefixes:
-        target = f"{prefix}{year}"
-        if target in columns:
-            return target
-
-    available = []
-    for col in columns:
-        for prefix in prefixes:
-            if col.startswith(prefix):
-                suffix = col[len(prefix):].strip()
-                if suffix.isdigit():
-                    available.append((int(suffix), prefix))
-
-    if not available:
-        raise KeyError("No 'Energy consumption YYYY' or 'Energieverbrauch YYYY' columns found in industry data.")
-
-    fallback_year, prefix = max(available, key=lambda item: item[0])
-    return f"{prefix}{fallback_year}"
-
-
-
 def upscale_yearly(year, industry_number, df_normalized, data_industry_type):
     """
     Scale the normalized annual profile to the industry's actual yearly consumption.
     """
     # Get actual energy consumption for this industry and year
-    energy_col = _resolve_energy_column(year, data_industry_type.columns)
+    energy_col_en = f"Energy consumption {year}"
+    energy_col_de = f"Energieverbrauch {year}"
+    energy_col = energy_col_en if energy_col_en in data_industry_type.columns else energy_col_de
     energy_per_year_MWh = float(data_industry_type[energy_col].iloc[0])
     
     # Scale the normalized profile to actual consumption
@@ -85,8 +64,15 @@ def add_fluctuations(industry_number, df_scaled, data_industry_type):
         df_scaled["Total"] = df_scaled["Total"] + rand_numbers
         return df_scaled
 
+    # New 6-category structure
+    if "Motor drives" in df_scaled.columns:
+        df_scaled["Motor drives"] = df_scaled["Motor drives"] + rand_numbers
+        df_scaled["Total"] = df_scaled["Total"] + rand_numbers
+        return df_scaled
+
     # Fallback to aggregated mechanical drives
-    df_scaled["Mechanical drives"] = df_scaled["Mechanical drives"] + rand_numbers
-    df_scaled["Total"] = df_scaled["Total"] + rand_numbers
+    if "Mechanical drives" in df_scaled.columns:
+        df_scaled["Mechanical drives"] = df_scaled["Mechanical drives"] + rand_numbers
+        df_scaled["Total"] = df_scaled["Total"] + rand_numbers
 
     return df_scaled
