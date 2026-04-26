@@ -1,75 +1,75 @@
 # DEUSTO iDesign RES
 
-Generador de perfiles anuales industriales para:
-- demanda electrica
-- demanda termica
+Industrial annual profile generator for:
+- electrical demand
+- thermal demand
 
-El repositorio combina perfiles diarios, estacionalidad y factores por sector para producir:
-- ficheros `.xlsx` con el perfil anual por aplicacion
-- diagramas `.png` en `Generated/diagrams`
+The repository combines daily profiles, seasonality, and sector factors to produce:
+- `.xlsx` files with annual profiles by application
+- `.png` diagrams in `Generated/diagrams`
 
-## Requisitos
+## Requirements
 
-Python 3.10+ y estas librerias:
+Python 3.10+ and these libraries:
 
 ```bash
 pip install pandas numpy matplotlib holidays openpyxl
 ```
 
-## Funcionamiento
+## How It Works
 
-El flujo de calculo sigue 4 modulos:
+The calculation flow is split into 4 modules:
 
-1. `module_1`: construye perfiles diarios base por tipo de dia (laborable, sabado, domingo, festivo y cargas constantes).
-2. `module_2`: aplica factores peak/base y redistribucion por aplicaciones.
-3. `module_3`: crea el calendario anual, aplica estacionalidad (HDD) y normaliza a 1000 MWh.
-4. `module_4`: escala al consumo anual real y (en electrico) anade fluctuaciones.
+1. `module_1`: builds base daily profiles by day type (weekday, Saturday, Sunday, holiday, and constant loads).
+2. `module_2`: applies peak/base factors and redistribution by applications.
+3. `module_3`: creates the yearly calendar, applies seasonality (HDD), and normalizes to 1000 MWh.
+4. `module_4`: scales to real annual consumption and (for electrical) adds fluctuations.
 
-Los lanzadores son:
+Main entry points:
 - `ElectricalProfile/LoadGeneratorElectricity.py`
 - `ThermalProfile/LoadGeneratorThermal.py`
-- `main.py` (entrada recomendada por CLI para ejecutar electrico, termico o ambos)
+- `main.py` (recommended CLI entry point to run electrical, thermal, or both)
 
-## Uso rapido (CLI recomendada)
+## Quick Start (Recommended CLI)
 
-Ejecutar ambos perfiles con valores por defecto:
+Run both profiles with default values:
 
 ```bash
 python main.py --non-interactive
 ```
 
-Ejemplo electrico:
+Electrical example:
 
 ```bash
 python main.py --profile electric --country ES --year 2020 --electric-industry 1 --weights-mode unsummed --non-interactive
 ```
 
-Ejemplo termico:
+Thermal example:
 
 ```bash
 python main.py --profile thermal --country ES --year 2020 --thermal-industry 1 --non-interactive
 ```
 
-## Salidas
+## Outputs
 
-Despues de ejecutar:
-- `Generated/load_profiles/`: perfiles anuales en Excel
-- `Generated/diagrams/`: graficos del perfil anual
+After running:
+- `Generated/load_profiles/`: annual profiles in Excel
+- `Generated/diagrams/`: annual profile plots
 
-## Ejemplos de imagenes
+## Image Examples
 
-### Perfil electrico (ES, ISI, 2020, unsummed)
+### Electrical Profile (ES, ISI, 2020, unsummed)
 
-![Perfil electrico ES ISI 2020](Generated/diagrams/iDesign_RES_ES_ISI_Iron_and_steel_2020_unsummed_rerun_Diagram.png)
+![Electrical profile ES ISI 2020](Generated/diagrams/iDesign_RES_ES_ISI_Iron_and_steel_2020_unsummed_rerun_Diagram.png)
 
-### Perfil termico (Primary Steel, ES)
+### Thermal Profile (Primary Steel, ES)
 
-![Perfil termico Primary Steel ES](Generated/diagrams/iDesign_RES_Primary%20Steel_ES_Diagram.png)
+![Thermal profile Primary Steel ES](Generated/diagrams/iDesign_RES_Primary%20Steel_ES_Diagram.png)
 
-## Estructura principal
+## Main Structure
 
-- `main.py`: interfaz CLI (interactiva y no interactiva).
-- `ElectricalProfile/LoadGeneratorElectricity.py`: pipeline electrico completo.
-- `ThermalProfile/LoadGeneratorThermal.py`: pipeline termico completo.
-- `Modules/module_1.py` a `Modules/module_4.py`: logica de generacion.
-- `Modules/module_plot.py`: render y guardado de diagramas.
+- `main.py`: CLI interface (interactive and non-interactive).
+- `ElectricalProfile/LoadGeneratorElectricity.py`: complete electrical pipeline.
+- `ThermalProfile/LoadGeneratorThermal.py`: complete thermal pipeline.
+- `Modules/module_1.py` to `Modules/module_4.py`: generation logic.
+- `Modules/module_plot.py`: diagram rendering and saving.
