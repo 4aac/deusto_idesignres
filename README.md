@@ -1,31 +1,75 @@
-﻿# deusto_idesignres
+# DEUSTO iDesign RES
 
-## Usage Steps
-1. Install Python dependencies (minimum): `pandas`, `numpy`, `matplotlib`, `holidays`, and an Excel reader (`openpyxl`).
-2. Review the data in `ElectricalProfile/data` and `ThermalProfile/data` (daily profiles, factors, and consumption data).
-3. Choose industry and year in:
-   - `ElectricalProfile/LoadGeneratorElectricity.py` (`INDUSTRY_NUMBER`, `YEAR`, `BASE_PATH`)
-   - `ThermalProfile/LoadGeneratorThermal.py` (`INDUSTRY_NUMBER`, `YEAR`, `BASE_PATH`)
-4. Run the corresponding script:
-   - Electrical: `python ElectricalProfile/LoadGeneratorElectricity.py`
-   - Thermal: `python ThermalProfile/LoadGeneratorThermal.py`
-5. Check the outputs in `Generated/`:
-   - `Generated/diagrams/` (plots)
-   - `Generated/load_profiles/` (annual profile xlsx files)
+Generador de perfiles anuales industriales para:
+- demanda electrica
+- demanda termica
 
-## Files and What They Do
-- `ElectricalProfile/LoadGeneratorElectricity.py`: Orchestrates the electrical workflow (modules 1–4), generates annual profiles, saves Excel and plot.
-- `ThermalProfile/LoadGeneratorThermal.py`: Orchestrates the thermal workflow (modules 1–4), generates annual profiles, saves Excel and plot.
-- `Modules/module_1.py`: Reads base daily profiles and industry weights. Builds daily profiles by day type.
-- `Modules/module_2.py`: Adjusts profiles with peak/base factors and redistributes by applications.
-- `Modules/module_3.py`: Builds the annual day-type calendar, applies HDD seasonality, and normalizes to 1000 MWh.
-- `Modules/module_4.py`: Scales to real annual consumption and adds fluctuations (mechanical drives) for electrical.
-- `Modules/module_plot.py`: Plotting and saving functions (electrical and thermal).
+El repositorio combina perfiles diarios, estacionalidad y factores por sector para producir:
+- ficheros `.xlsx` con el perfil anual por aplicacion
+- diagramas `.png` en `Generated/diagrams`
 
-## Data
-- `ElectricalProfile/data/Load_profiles_enduser.xlsx`: Electrical daily profiles by day type.
-- `ElectricalProfile/data/All_info_industry_types_electrical.xlsx`: Industry weights and annual consumption (electrical).
-- `ElectricalProfile/data/HeatingDegreeDays.xlsx`: Monthly HDD factors used for seasonality.
-- `ThermalProfile/data/Load_profiles_daytypes.xlsx`: Thermal daily profiles by day type.
-- `ThermalProfile/data/All_info_industry_types_thermal.xlsx`: Industry weights and annual consumption (thermal).
-- `ThermalProfile/data/HeatingDegreeDays.xlsx`: Monthly HDD factors used for seasonality.
+## Requisitos
+
+Python 3.10+ y estas librerias:
+
+```bash
+pip install pandas numpy matplotlib holidays openpyxl
+```
+
+## Funcionamiento
+
+El flujo de calculo sigue 4 modulos:
+
+1. `module_1`: construye perfiles diarios base por tipo de dia (laborable, sabado, domingo, festivo y cargas constantes).
+2. `module_2`: aplica factores peak/base y redistribucion por aplicaciones.
+3. `module_3`: crea el calendario anual, aplica estacionalidad (HDD) y normaliza a 1000 MWh.
+4. `module_4`: escala al consumo anual real y (en electrico) anade fluctuaciones.
+
+Los lanzadores son:
+- `ElectricalProfile/LoadGeneratorElectricity.py`
+- `ThermalProfile/LoadGeneratorThermal.py`
+- `main.py` (entrada recomendada por CLI para ejecutar electrico, termico o ambos)
+
+## Uso rapido (CLI recomendada)
+
+Ejecutar ambos perfiles con valores por defecto:
+
+```bash
+python main.py --non-interactive
+```
+
+Ejemplo electrico:
+
+```bash
+python main.py --profile electric --country ES --year 2020 --electric-industry 1 --weights-mode unsummed --non-interactive
+```
+
+Ejemplo termico:
+
+```bash
+python main.py --profile thermal --country ES --year 2020 --thermal-industry 1 --non-interactive
+```
+
+## Salidas
+
+Despues de ejecutar:
+- `Generated/load_profiles/`: perfiles anuales en Excel
+- `Generated/diagrams/`: graficos del perfil anual
+
+## Ejemplos de imagenes
+
+### Perfil electrico (ES, ISI, 2020, unsummed)
+
+![Perfil electrico ES ISI 2020](Generated/diagrams/iDesign_RES_ES_ISI_Iron_and_steel_2020_unsummed_rerun_Diagram.png)
+
+### Perfil termico (Primary Steel, ES)
+
+![Perfil termico Primary Steel ES](Generated/diagrams/iDesign_RES_Primary%20Steel_ES_Diagram.png)
+
+## Estructura principal
+
+- `main.py`: interfaz CLI (interactiva y no interactiva).
+- `ElectricalProfile/LoadGeneratorElectricity.py`: pipeline electrico completo.
+- `ThermalProfile/LoadGeneratorThermal.py`: pipeline termico completo.
+- `Modules/module_1.py` a `Modules/module_4.py`: logica de generacion.
+- `Modules/module_plot.py`: render y guardado de diagramas.
