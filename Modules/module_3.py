@@ -91,18 +91,18 @@ def build_load_type_calendar(year):
             # Non-working day (not first or last day of year)
             if array_wd_we[i - 1] == 1:  # Day before is working
                 if array_wd_we[i + 1] == 1:
-                    # Day after is working → Holiday load pattern
+                    # Day after is working -> Holiday load pattern
                     array_load_type.append(2)
                 elif array_wd_we[i + 1] == 2:
-                    # Day after is non-working → Saturday load pattern
+                    # Day after is non-working -> Saturday load pattern
                     array_load_type.append(3)
             
             elif array_wd_we[i - 1] == 2:  # Day before is non-working
                 if array_wd_we[i + 1] == 1:
-                    # Day after is working → Sunday load pattern
+                    # Day after is working -> Sunday load pattern
                     array_load_type.append(4)
                 elif array_wd_we[i + 1] == 2:
-                    # Day after is non-working → Constant load pattern
+                    # Day after is non-working -> Constant load pattern
                     array_load_type.append(5)
         
         elif i == 0:
@@ -130,8 +130,8 @@ def seasonality(year, year_list, array_load_type,
     This function applies seasonal adjustment to space heating based on heating degree days (HDD).
     
     Heating degree days account for temperature variations throughout the year:
-    - High HDD in winter → high heating demand
-    - Low HDD in summer → low heating demand
+    - High HDD in winter -> high heating demand
+    - Low HDD in summer -> low heating demand
     """
     # Read heating degree day factors by month
     root = Path(path) if path else Path(__file__).resolve().parent.parent
