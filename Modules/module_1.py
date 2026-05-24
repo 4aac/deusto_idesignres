@@ -4,20 +4,6 @@ from pathlib import Path
 from Modules import module_work_shift
 
 
-SECTOR_CODE_BY_INDUSTRY_NUMBER = {
-    1: "ISI",
-    2: "NFM",
-    3: "CHI",
-    4: "NMM",
-    5: "PPA",
-    6: "FBT",
-    7: "TRE",
-    8: "MAE",
-    9: "TEL",
-    10: "WWP",
-    11: "OIS",
-}
-
 BASE_ELECTRIC_COLUMNS = [
     "Lighting",
     "Air compressors",
@@ -38,49 +24,16 @@ WEIGHT_MODE_FILES = {
     },
 }
 
-
-def _resolve_root(base_path):
-    """
-    Resolve project root from an optional file/folder path.
-    """
-    root = Path(base_path) if base_path else Path(__file__).resolve().parent.parent
-    if root.suffix:
-        root = root.parent
-    return root
-
-
-def _build_year_map(df):
-    """
-    Build a {year: column_index} map from the first row of an IDEES sheet.
-    """
+def _select_year_column(df, year):
+    """Return the target year column, falling back to the latest available year."""
     year_map = {}
     for c in range(1, df.shape[1]):
         value = df.iat[0, c]
         if pd.notna(value):
             year_map[int(value)] = c
-    return year_map
 
-
-def _select_year_column(year_map, year):
-    """
-    Select target year column, falling back to the latest available year.
-    """
     selected_year = int(year) if int(year) in year_map else max(year_map.keys())
     return year_map[selected_year]
-
-
-def _weights_file_path(root, country_code, mode):
-    """
-    Build absolute path to the weights workbook for the selected mode.
-    """
-    config = WEIGHT_MODE_FILES[mode]
-    return (
-        root
-        / "Data"
-        / "General"
-        / config["folder"]
-        / config["filename_template"].format(country_code=country_code)
-    )
 
 
 def _read_sector_weights_from_aggregated(workbook_path, sector_code, year):
@@ -88,8 +41,7 @@ def _read_sector_weights_from_aggregated(workbook_path, sector_code, year):
     Read sector weights from the aggregated workbook (summed mode).
     """
     df = pd.read_excel(workbook_path, sheet_name=sector_code, header=None)
-    year_map = _build_year_map(df)
-    year_col = _select_year_column(year_map, year)
+    year_col = _select_year_column(df, year)
 
     weights = {name: 0.0 for name in BASE_ELECTRIC_COLUMNS}
     for r in range(1, df.shape[0]):
@@ -146,8 +98,7 @@ def _read_sector_weights_from_sector_sheets(workbook_path, sector_code, year):
         sheet_rows = []
         for sheet_name in sector_sheets:
             df = pd.read_excel(xls, sheet_name=sheet_name, header=None)
-            year_map = _build_year_map(df)
-            year_col = _select_year_column(year_map, year)
+            year_col = _select_year_column(df, year)
             sheet_rows.append(_read_unsummed_rows(df, year_col))
 
     n_sheets = len(sheet_rows)
@@ -161,16 +112,27 @@ def _read_sector_weights_from_sector_sheets(workbook_path, sector_code, year):
     return pd.Series(mean_weights, dtype=float)
 
 
-def _read_sector_weights(root, country_code, industry_number, year, weights_mode="summed"):
-    """
-    Read electric application weights for one sector and one year.
-    """
-    sector_code = SECTOR_CODE_BY_INDUSTRY_NUMBER[int(industry_number)]
-    weights_path = _weights_file_path(root, country_code, weights_mode)
+def _read_thermal_industry_final_energy(root, country_code, industry_column):
+    country_code = str(country_code).upper()
+    csv_path = (
+        root
+        / "Data"
+        / "HeatSpecific"
+        / "industry_heat_eu"
+        / "industry_final_energy_consumption"
+        / f"industry_final_energy_consumption_{country_code}.csv"
+    )
+    if not csv_path.exists():
+        raise FileNotFoundError(f"Thermal final energy CSV not found: {csv_path}")
 
-    if weights_mode == "unsummed":
-        return _read_sector_weights_from_sector_sheets(weights_path, sector_code, year)
-    return _read_sector_weights_from_aggregated(weights_path, sector_code, year)
+    df = pd.read_csv(csv_path)
+    if "energy_demand_type" not in df.columns:
+        raise KeyError(f"Missing 'energy_demand_type' column in {csv_path}")
+    if industry_column not in df.columns:
+        raise KeyError(f"Missing '{industry_column}' column in {csv_path}")
+
+    values = pd.to_numeric(df[industry_column], errors="coerce").fillna(0.0)
+    return pd.Series(values.to_numpy(), index=df["energy_demand_type"].astype(str), dtype=float)
 
 
 def _project_profiles_to_base_categories(profile_df):
@@ -223,46 +185,6 @@ def _expand_unsummed_profiles(profile_df, usage_labels):
     return out
 
 
-def _read_enduser_profiles(base_path, sheet_name):
-    """
-    Read an end-user profile sheet and drop empty rows.
-    """
-    root = _resolve_root(base_path)
-
-    data_path = root / "Data" / "ElectricalSpecific" / "Load_profiles_enduser.xlsx"
-    df = pd.read_excel(
-        data_path,
-        index_col=0,
-        sheet_name=sheet_name,
-    )
-    df = df.dropna(axis=0)
-    return df
-
-
-def _read_base_electric_profiles(base_path):
-    """
-    Read and project all daily electric end-user profiles to base categories.
-    """
-    return {
-        "weekday": _project_profiles_to_base_categories(_read_enduser_profiles(base_path, "Week_day")),
-        "saturday": _project_profiles_to_base_categories(_read_enduser_profiles(base_path, "Saturday")),
-        "sunday": _project_profiles_to_base_categories(_read_enduser_profiles(base_path, "Sunday")),
-        "holiday": _project_profiles_to_base_categories(_read_enduser_profiles(base_path, "Holiday")),
-    }
-
-
-def _expand_profiles_for_mode(base_profiles, weights_mode, usage_labels):
-    """
-    Return day-type profiles adapted to selected weights mode.
-    """
-    if weights_mode == "unsummed":
-        return {
-            day_type: _expand_unsummed_profiles(df, usage_labels)
-            for day_type, df in base_profiles.items()
-        }
-    return dict(base_profiles)
-
-
 def _apply_profile_weights(profiles, weights):
     """
     Multiply profiles by column weights and add a total column.
@@ -274,35 +196,59 @@ def _apply_profile_weights(profiles, weights):
 
 def build_electric_daily_profiles(
     industry_number,
+    sector_code,
     year,
     country_code,
     base_path,
     apply_shifts=True,
     weights_mode="summed",
 ):
-    """ INPUT: END USER PROFILES """
-    base_profiles = _read_base_electric_profiles(base_path)
+    """Build electric daily profiles for weekday, Saturday, Sunday, holiday and constant loads."""
+    root = Path(base_path) if base_path else Path(__file__).resolve().parent.parent
 
-    """ INPUT: INDUSTRY DATA """
-    root = _resolve_root(base_path)
+    # Read and project end-user daily profiles to the base electrical categories.
+    profile_path = root / "Data" / "ElectricalSpecific" / "Load_profiles_enduser.xlsx"
+    base_profiles = {}
+    for day_type, sheet_name in {
+        "weekday": "Week_day",
+        "saturday": "Saturday",
+        "sunday": "Sunday",
+        "holiday": "Holiday",
+    }.items():
+        raw_profile = pd.read_excel(profile_path, index_col=0, sheet_name=sheet_name).dropna(axis=0)
+        base_profiles[day_type] = _project_profiles_to_base_categories(raw_profile)
+
+    # Read sector metadata and country/year application weights.
     all_info_path = root / "Data" / "ElectricalSpecific" / "All_info_industry_types_electrical.xlsx"
     industry_info_df = pd.read_excel(all_info_path)
     industry_info_df.dropna(how="all", axis=0, inplace=True)
     industry_info_df.dropna(how="all", axis=1, inplace=True)
-    industry_info_df.fillna(0, inplace=True)
-    
+    # Fill missing values only on numeric columns to avoid pandas StringDtype errors.
+    numeric_cols = industry_info_df.select_dtypes(include="number").columns
+    industry_info_df.loc[:, numeric_cols] = industry_info_df.loc[:, numeric_cols].fillna(0)
+    data_industry_type = industry_info_df[industry_info_df.industry_number.eq(industry_number)]
 
-    """ SELECT DATA FROM THE CHOSEN INDUSTRY """
-    data_industry_type = industry_info_df[industry_info_df.industry_number.eq(industry_number)]  # Filters rows with specific industry_wz
-    weights = _read_sector_weights(
-        root=root,
-        country_code=country_code,
-        industry_number=industry_number,
-        year=year,
-        weights_mode=weights_mode,
+    weights_config = WEIGHT_MODE_FILES[weights_mode]
+    weights_path = (
+        root
+        / "Data"
+        / "General"
+        / weights_config["folder"]
+        / weights_config["filename_template"].format(country_code=country_code)
     )
+    if weights_mode == "unsummed":
+        weights = _read_sector_weights_from_sector_sheets(weights_path, sector_code, year)
+    else:
+        weights = _read_sector_weights_from_aggregated(weights_path, sector_code, year)
 
-    expanded_profiles = _expand_profiles_for_mode(base_profiles, weights_mode, list(weights.index))
+    if weights_mode == "unsummed":
+        expanded_profiles = {
+            day_type: _expand_unsummed_profiles(profile, list(weights.index))
+            for day_type, profile in base_profiles.items()
+        }
+    else:
+        expanded_profiles = base_profiles
+
     profiles_weekday = expanded_profiles["weekday"]
     profiles_saturday = expanded_profiles["saturday"]
     profiles_sunday = expanded_profiles["sunday"]
@@ -338,69 +284,90 @@ def build_electric_daily_profiles(
 
     weights = weights.reindex(profiles_weekday.columns).fillna(0.0)
 
-    """ CREATE DAILY PROFILES """
+    # Apply weights and add Total columns for every day type.
     weekday_profiles = _apply_profile_weights(profiles_weekday, weights)
     saturday_profiles = _apply_profile_weights(profiles_saturday, weights)
     sunday_profiles = _apply_profile_weights(profiles_sunday, weights)
     holiday_profiles = _apply_profile_weights(profiles_holiday, weights)
     constant_profiles = _apply_profile_weights(profiles_constant, weights)
     
-    return weekday_profiles, saturday_profiles, sunday_profiles, holiday_profiles, constant_profiles, data_industry_type 
-   
-   
-    
-def build_thermal_daily_profiles(industry_number, base_path, apply_shifts=True):
-    """ INPUT: END USER PROFILES """
-    root = _resolve_root(base_path)
+    return weekday_profiles, saturday_profiles, sunday_profiles, holiday_profiles, constant_profiles, data_industry_type
+
+
+def build_thermal_daily_profiles(
+    industry_number,
+    industry_name,
+    industry_column,
+    year,
+    country_code,
+    base_path,
+    apply_shifts=True,
+):
+    """Build thermal daily profiles from Heat EU final-energy CSV shares."""
+    country_code = str(country_code).upper()
+    root = Path(base_path) if base_path else Path(__file__).resolve().parent.parent
     thermal_data_path = root / "Data" / "HeatSpecific" / "Load_profiles_daytypes.xlsx"
-    profiles_weekday = pd.read_excel(thermal_data_path, sheet_name="Week_day", index_col=0)
-    profiles_saturday = pd.read_excel(thermal_data_path, sheet_name="Saturday", index_col=0) 
-    profiles_sunday = pd.read_excel(thermal_data_path, sheet_name="Sunday", index_col=0)
-    profiles_holiday = pd.read_excel(thermal_data_path, sheet_name="Holiday", index_col=0)
-    
+    base_weekday = pd.read_excel(thermal_data_path, sheet_name="Week_day", index_col=0)
+    base_saturday = pd.read_excel(thermal_data_path, sheet_name="Saturday", index_col=0)
+    base_sunday = pd.read_excel(thermal_data_path, sheet_name="Sunday", index_col=0)
+    base_holiday = pd.read_excel(thermal_data_path, sheet_name="Holiday", index_col=0)
+
+    final_energy = _read_thermal_industry_final_energy(root, country_code, industry_column)
+    total_final_energy = float(final_energy.sum())
+    if total_final_energy <= 0:
+        raise ValueError(
+            f"No final energy found for {industry_name} in {country_code}."
+        )
+
+    weights = final_energy / total_final_energy * 100.0
+    usage_labels = list(weights.index)
+
+    daily_profiles = {}
+    for day_type, base_profile in {
+        "weekday": base_weekday,
+        "saturday": base_saturday,
+        "sunday": base_sunday,
+        "holiday": base_holiday,
+    }.items():
+        base_load = base_profile.iloc[:, 0].astype(float)
+        daily_profiles[day_type] = pd.DataFrame(
+            {label: base_load for label in usage_labels},
+            index=base_profile.index,
+        )
+
+    profiles_weekday = daily_profiles["weekday"]
+    profiles_saturday = daily_profiles["saturday"]
+    profiles_sunday = daily_profiles["sunday"]
+    profiles_holiday = daily_profiles["holiday"]
+
     profiles_constant = profiles_weekday.copy()
-    profiles_constant.loc[:,:] =1
-    
-    
-    """ INPUT: INDUSTRY DATA """
-    all_info_path = root / "Data" / "HeatSpecific" / "All_info_industry_types_thermal.xlsx"
-    industry_info_df = pd.read_excel(all_info_path)
-    industry_info_df.dropna(how="all",axis=0, inplace=True)
-    industry_info_df.dropna(how="all",axis=1, inplace=True)
-    industry_info_df.fillna(0, inplace=True)
-    
+    profiles_constant.loc[:, :] = 1
 
-    """ SELECT DATA FROM THE CHOSEN INDUSTRY """
-    data_industry_type = industry_info_df[industry_info_df.industry_number.eq(industry_number)]  # Filters rows with specific industry_wz
-    data_industry = data_industry_type.iloc[:, 3:9]  # Extracts temperature range values
-    data_industry = data_industry.astype(float)
+    data_industry_type = pd.DataFrame(
+        [
+            {
+                "industry_number": int(industry_number),
+                "WZ_ID": industry_name,
+                "Name": industry_name,
+                "Peak_factor": 0.0,
+                "Base_factor": 0.0,
+                f"Energy consumption {int(year)}": total_final_energy,
+                f"Energieverbrauch {int(year)}": total_final_energy,
+                "Country_code": country_code,
+            }
+        ],
+        index=[int(industry_number)],
+    )
 
-
-    """ CREATE DAILY PROFILES """   
-    weights = data_industry.iloc[0]
-
-    thermal_rename = {
-        "Raumwärme": "Space heating",
-        "Warmwasser": "Hot water",
-        "Prozesswärme < 100 °C": "< 100 °C",
-        "Prozesswärme 100 °C - 500 °C": "100 °C - 500 °C",
-        "Prozesswärme 500 °C - 1000 °C": "500 °C - 1000 °C",
-        "Prozesswärme > 1000 °C": ">1000 °C",
-    }
-
-    weekday_profiles = _apply_profile_weights(profiles_weekday, weights).rename(columns=thermal_rename)
-    saturday_profiles = _apply_profile_weights(profiles_saturday, weights).rename(columns=thermal_rename)
-    sunday_profiles = _apply_profile_weights(profiles_sunday, weights).rename(columns=thermal_rename)
-    holiday_profiles = _apply_profile_weights(profiles_holiday, weights).rename(columns=thermal_rename)
-    constant_profiles = _apply_profile_weights(profiles_constant, weights).rename(columns=thermal_rename)
+    weekday_profiles = _apply_profile_weights(profiles_weekday, weights)
+    saturday_profiles = _apply_profile_weights(profiles_saturday, weights)
+    sunday_profiles = _apply_profile_weights(profiles_sunday, weights)
+    holiday_profiles = _apply_profile_weights(profiles_holiday, weights)
+    constant_profiles = _apply_profile_weights(profiles_constant, weights)
 
     if apply_shifts:
-        thermal_betas = {
-            "< 100 °C": 0.3,
-            "100 °C - 500 °C": 0.3,
-            "500 °C - 1000 °C": 0.3,
-            ">1000 °C": 0.3,
-        }
+        thermal_betas = {label: 0.3 for label in usage_labels}
+        thermal_betas.update({"Electricity Other": 0.4, "Electricity Thermal": 0.3})
         weekday_profiles, saturday_profiles, sunday_profiles, holiday_profiles = (
             module_work_shift.apply_work_shifts(
                 weekday_profiles,
@@ -414,5 +381,5 @@ def build_thermal_daily_profiles(industry_number, base_path, apply_shifts=True):
                 rescale=True,
             )
         )
-    
+
     return weekday_profiles, saturday_profiles, sunday_profiles, holiday_profiles, constant_profiles, data_industry_type

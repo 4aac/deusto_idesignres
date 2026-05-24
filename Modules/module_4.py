@@ -1,14 +1,37 @@
 import numpy as np
 
 
-def upscale_yearly(year, industry_number, df_normalized, data_industry_type):
+def upscale_yearly(year, df_normalized, data_industry_type):
     """
     Scale the normalized annual profile to the industry's actual yearly consumption.
     """
-    # Get actual energy consumption for this industry and year
+    # Resolve the energy-consumption column for the requested year. If the exact
+    # year is not available, use the latest supported year in the input table.
     energy_col_en = f"Energy consumption {year}"
     energy_col_de = f"Energieverbrauch {year}"
-    energy_col = energy_col_en if energy_col_en in data_industry_type.columns else energy_col_de
+
+    if energy_col_en in data_industry_type.columns:
+        energy_col = energy_col_en
+    elif energy_col_de in data_industry_type.columns:
+        energy_col = energy_col_de
+    else:
+        candidates = []
+        for col in data_industry_type.columns:
+            col_str = str(col)
+            if col_str.startswith("Energy consumption ") or col_str.startswith("Energieverbrauch "):
+                year_token = col_str.split()[-1]
+                if year_token.isdigit():
+                    candidates.append((int(year_token), col_str))
+
+        if not candidates:
+            raise KeyError(
+                f"No energy-consumption column found for year {year}. "
+                "Expected columns like 'Energy consumption YYYY' or 'Energieverbrauch YYYY'."
+            )
+
+        candidates.sort(key=lambda item: item[0])
+        energy_col = candidates[-1][1]
+
     energy_per_year_MWh = float(data_industry_type[energy_col].iloc[0])
     
     # Scale the normalized profile to actual consumption
