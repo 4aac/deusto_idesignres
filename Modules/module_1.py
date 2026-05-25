@@ -13,6 +13,8 @@ BASE_ELECTRIC_COLUMNS = [
     "Others (sum mean)",
 ]
 
+HIGH_SHIFT_BETA_COLUMNS = {"Motor drives", "Air compressors", "Fans and pumps"}
+
 WEIGHT_MODE_FILES = {
     "summed": {
         "folder": "JRC-IDEES_final_energy_consumption_by_country_aggregated6_total",
@@ -24,6 +26,7 @@ WEIGHT_MODE_FILES = {
     },
 }
 
+
 def _select_year_column(df, year):
     """Return the target year column, falling back to the latest available year."""
     year_map = {}
@@ -34,105 +37,6 @@ def _select_year_column(df, year):
 
     selected_year = int(year) if int(year) in year_map else max(year_map.keys())
     return year_map[selected_year]
-
-
-def _read_sector_weights_from_aggregated(workbook_path, sector_code, year):
-    """
-    Read sector weights from the aggregated workbook (summed mode).
-    """
-    df = pd.read_excel(workbook_path, sheet_name=sector_code, header=None)
-    year_col = _select_year_column(df, year)
-
-    weights = {name: 0.0 for name in BASE_ELECTRIC_COLUMNS}
-    for r in range(1, df.shape[0]):
-        label = df.iat[r, 0]
-        if not isinstance(label, str):
-            continue
-        clean_label = label.strip()
-        if clean_label in weights:
-            weights[clean_label] = float(df.iat[r, year_col])
-
-    return pd.Series(weights, dtype=float)
-
-
-def _sheet_matches_sector(sheet_name, sector_code):
-    """
-    Match workbook sheet names to a sector code prefix.
-    """
-    clean = str(sheet_name).strip().upper()
-    sector = str(sector_code).strip().upper()
-    return (
-        clean == sector
-        or clean.startswith(f"{sector} ")
-        or clean.startswith(f"{sector}-")
-        or clean.startswith(f"{sector}_")
-    )
-
-
-def _read_unsummed_rows(df, year_col):
-    """
-    Read all end-use rows from a sector sheet for one year (excluding Total/Others row).
-    """
-    rows = {}
-
-    for r in range(1, df.shape[0]):
-        label = df.iat[r, 0]
-        if not isinstance(label, str):
-            continue
-        clean_label = label.strip()
-        if not clean_label or clean_label.lower() == "total (%)" or clean_label == "Others (sum mean)":
-            continue
-
-        value = float(df.iat[r, year_col])
-        rows[clean_label] = value
-
-    return rows
-
-
-def _read_sector_weights_from_sector_sheets(workbook_path, sector_code, year):
-    """
-    Read sector weights from rerun workbook and average across matching subsector sheets.
-    """
-    with pd.ExcelFile(workbook_path) as xls:
-        sector_sheets = [name for name in xls.sheet_names if _sheet_matches_sector(name, sector_code)]
-        sheet_rows = []
-        for sheet_name in sector_sheets:
-            df = pd.read_excel(xls, sheet_name=sheet_name, header=None)
-            year_col = _select_year_column(df, year)
-            sheet_rows.append(_read_unsummed_rows(df, year_col))
-
-    n_sheets = len(sheet_rows)
-    sum_weights = {}
-    for rows in sheet_rows:
-        for label, value in rows.items():
-            sum_weights[label] = sum_weights.get(label, 0.0) + value
-
-    mean_weights = {label: total / n_sheets for label, total in sum_weights.items()}
-
-    return pd.Series(mean_weights, dtype=float)
-
-
-def _read_thermal_industry_final_energy(root, country_code, industry_column):
-    country_code = str(country_code).upper()
-    csv_path = (
-        root
-        / "Data"
-        / "HeatSpecific"
-        / "industry_heat_eu"
-        / "industry_final_energy_consumption"
-        / f"industry_final_energy_consumption_{country_code}.csv"
-    )
-    if not csv_path.exists():
-        raise FileNotFoundError(f"Thermal final energy CSV not found: {csv_path}")
-
-    df = pd.read_csv(csv_path)
-    if "energy_demand_type" not in df.columns:
-        raise KeyError(f"Missing 'energy_demand_type' column in {csv_path}")
-    if industry_column not in df.columns:
-        raise KeyError(f"Missing '{industry_column}' column in {csv_path}")
-
-    values = pd.to_numeric(df[industry_column], errors="coerce").fillna(0.0)
-    return pd.Series(values.to_numpy(), index=df["energy_demand_type"].astype(str), dtype=float)
 
 
 def _project_profiles_to_base_categories(profile_df):
@@ -169,22 +73,6 @@ def _project_profiles_to_base_categories(profile_df):
     return out
 
 
-def _expand_unsummed_profiles(profile_df, usage_labels):
-    """
-    Expand base profiles so unsummed end-use labels map to concrete profile columns.
-    """
-    out = pd.DataFrame(index=profile_df.index)
-    others_profile = profile_df["Others (sum mean)"]
-
-    for label in usage_labels:
-        if label in profile_df.columns and label != "Others (sum mean)":
-            out[label] = profile_df[label]
-        else:
-            out[label] = others_profile
-
-    return out
-
-
 def _apply_profile_weights(profiles, weights):
     """
     Multiply profiles by column weights and add a total column.
@@ -192,6 +80,182 @@ def _apply_profile_weights(profiles, weights):
     y = profiles.mul(weights, axis=1)  # Application profiles * Share of applications
     y["Total"] = y.sum(axis=1)
     return y
+
+
+def _read_electric_industry_metadata(root, industry_number):
+    """
+    Read the electrical industry metadata row used by downstream modules.
+    """
+    all_info_path = (
+        root
+        / "Data"
+        / "ElectricalSpecific"
+        / "All_info_industry_types_electrical.xlsx"
+    )
+    industry_info_df = pd.read_excel(all_info_path)
+    industry_info_df.dropna(how="all", axis=0, inplace=True)
+    industry_info_df.dropna(how="all", axis=1, inplace=True)
+
+    # Fill missing values only on numeric columns to avoid pandas StringDtype errors.
+    numeric_cols = industry_info_df.select_dtypes(include="number").columns
+    industry_info_df.loc[:, numeric_cols] = industry_info_df.loc[:, numeric_cols].fillna(0)
+
+    return industry_info_df[industry_info_df.industry_number.eq(industry_number)]
+
+
+def _read_electric_weights(root, weights_mode, country_code, sector_code, year):
+    """
+    Read country/year application shares for summed or unsummed IDEES workbooks.
+    """
+    weights_config = WEIGHT_MODE_FILES[weights_mode]
+    weights_path = (
+        root
+        / "Data"
+        / "General"
+        / weights_config["folder"]
+        / weights_config["filename_template"].format(country_code=country_code)
+    )
+
+    if weights_mode != "unsummed":
+        return _read_summed_electric_weights(weights_path, sector_code, year)
+
+    return _read_unsummed_electric_weights(weights_path, sector_code, year)
+
+
+def _read_summed_electric_weights(weights_path, sector_code, year):
+    """
+    Read the six already-aggregated electrical categories from a summed workbook.
+    """
+    df = pd.read_excel(weights_path, sheet_name=sector_code, header=None)
+    year_col = _select_year_column(df, year)
+    weights = {name: 0.0 for name in BASE_ELECTRIC_COLUMNS}
+
+    for r in range(1, df.shape[0]):
+        label = df.iat[r, 0]
+        if not isinstance(label, str):
+            continue
+
+        clean_label = label.strip()
+        if clean_label in weights:
+            weights[clean_label] = float(df.iat[r, year_col])
+
+    return pd.Series(weights, dtype=float)
+
+
+def _read_unsummed_electric_weights(weights_path, sector_code, year):
+    """
+    Read detailed end-use weights and average them across matching sector sheets.
+    """
+    sheet_weights = []
+
+    sector = str(sector_code).strip().upper()
+    with pd.ExcelFile(weights_path) as xls:
+        for sheet_name in xls.sheet_names:
+            if not _sheet_matches_sector(sheet_name, sector):
+                continue
+
+            df = pd.read_excel(xls, sheet_name=sheet_name, header=None)
+            sheet_weights.append(_read_unsummed_sheet_weights(df, year))
+
+    if not sheet_weights:
+        return pd.Series(dtype=float)
+
+    # Average detailed weights across all sector sheets that matched the code.
+    return pd.concat(sheet_weights, axis=1).fillna(0.0).mean(axis=1)
+
+
+def _sheet_matches_sector(sheet_name, sector):
+    """
+    Return True when an Excel sheet belongs to the requested sector code.
+    """
+    clean_name = str(sheet_name).strip().upper()
+    return (
+        clean_name == sector
+        or clean_name.startswith(f"{sector} ")
+        or clean_name.startswith(f"{sector}-")
+        or clean_name.startswith(f"{sector}_")
+    )
+
+
+def _read_unsummed_sheet_weights(df, year):
+    """
+    Read detailed end-use rows from one unsummed sector sheet.
+    """
+    year_col = _select_year_column(df, year)
+    weights = {}
+
+    for r in range(1, df.shape[0]):
+        label = df.iat[r, 0]
+        if not isinstance(label, str):
+            continue
+
+        clean_label = label.strip()
+        if (
+            not clean_label
+            or clean_label.lower() == "total (%)"
+            or clean_label == "Others (sum mean)"
+        ):
+            continue
+
+        weights[clean_label] = float(df.iat[r, year_col])
+
+    return pd.Series(weights, dtype=float)
+
+
+def _expand_profiles_for_weights(base_profiles, weights):
+    """
+    Expand base daily profiles so every detailed weight has a matching column.
+    """
+    expanded_profiles = {}
+    usage_labels = list(weights.index)
+
+    for day_type, profile in base_profiles.items():
+        others_profile = profile["Others (sum mean)"]
+        expanded_profile = pd.DataFrame(index=profile.index)
+
+        for label in usage_labels:
+            if label in profile.columns and label != "Others (sum mean)":
+                expanded_profile[label] = profile[label]
+            else:
+                # Unknown detailed uses inherit the generic "Others" shape.
+                expanded_profile[label] = others_profile
+
+        expanded_profiles[day_type] = expanded_profile
+
+    return expanded_profiles
+
+
+def _read_thermal_industry_final_energy(root, country_code, industry_column):
+    """
+    Read final-energy values for one thermal industry column.
+    """
+    final_energy_path = (
+        root
+        / "Data"
+        / "HeatSpecific"
+        / "industry_heat_eu"
+        / "industry_final_energy_consumption"
+        / f"industry_final_energy_consumption_{country_code}.csv"
+    )
+    if not final_energy_path.exists():
+        raise FileNotFoundError(f"Thermal final energy CSV not found: {final_energy_path}")
+
+    final_energy_df = pd.read_csv(final_energy_path)
+    if "energy_demand_type" not in final_energy_df.columns:
+        raise KeyError(f"Missing 'energy_demand_type' column in {final_energy_path}")
+    if industry_column not in final_energy_df.columns:
+        raise KeyError(f"Missing '{industry_column}' column in {final_energy_path}")
+
+    final_energy_values = pd.to_numeric(
+        final_energy_df[industry_column],
+        errors="coerce",
+    ).fillna(0.0)
+
+    return pd.Series(
+        final_energy_values.to_numpy(),
+        index=final_energy_df["energy_demand_type"].astype(str),
+        dtype=float,
+    )
 
 
 def build_electric_daily_profiles(
@@ -215,59 +279,44 @@ def build_electric_daily_profiles(
         "sunday": "Sunday",
         "holiday": "Holiday",
     }.items():
-        raw_profile = pd.read_excel(profile_path, index_col=0, sheet_name=sheet_name).dropna(axis=0)
+        raw_profile = pd.read_excel(
+            profile_path,
+            index_col=0,
+            sheet_name=sheet_name,
+        ).dropna(axis=0)
         base_profiles[day_type] = _project_profiles_to_base_categories(raw_profile)
 
     # Read sector metadata and country/year application weights.
-    all_info_path = root / "Data" / "ElectricalSpecific" / "All_info_industry_types_electrical.xlsx"
-    industry_info_df = pd.read_excel(all_info_path)
-    industry_info_df.dropna(how="all", axis=0, inplace=True)
-    industry_info_df.dropna(how="all", axis=1, inplace=True)
-    # Fill missing values only on numeric columns to avoid pandas StringDtype errors.
-    numeric_cols = industry_info_df.select_dtypes(include="number").columns
-    industry_info_df.loc[:, numeric_cols] = industry_info_df.loc[:, numeric_cols].fillna(0)
-    data_industry_type = industry_info_df[industry_info_df.industry_number.eq(industry_number)]
+    data_industry_type = _read_electric_industry_metadata(root, industry_number)
+    weights = _read_electric_weights(root, weights_mode, country_code, sector_code, year)
 
-    weights_config = WEIGHT_MODE_FILES[weights_mode]
-    weights_path = (
-        root
-        / "Data"
-        / "General"
-        / weights_config["folder"]
-        / weights_config["filename_template"].format(country_code=country_code)
+    # Unsummed weights can contain detailed labels not present in the base profiles.
+    expanded_profiles = (
+        _expand_profiles_for_weights(base_profiles, weights)
+        if weights_mode == "unsummed"
+        else base_profiles
     )
-    if weights_mode == "unsummed":
-        weights = _read_sector_weights_from_sector_sheets(weights_path, sector_code, year)
-    else:
-        weights = _read_sector_weights_from_aggregated(weights_path, sector_code, year)
-
-    if weights_mode == "unsummed":
-        expanded_profiles = {
-            day_type: _expand_unsummed_profiles(profile, list(weights.index))
-            for day_type, profile in base_profiles.items()
-        }
-    else:
-        expanded_profiles = base_profiles
 
     profiles_weekday = expanded_profiles["weekday"]
     profiles_saturday = expanded_profiles["saturday"]
     profiles_sunday = expanded_profiles["sunday"]
     profiles_holiday = expanded_profiles["holiday"]
 
+    # Constant profiles keep the same application weights for every time step.
     profiles_constant = profiles_weekday.copy()
     profiles_constant.loc[:, :] = 1
 
     if apply_shifts:
-        shift_betas = {
-            col: (
-                0.85
-                if col in {"Motor drives", "Air compressors", "Fans and pumps"}
-                else 0.7
-                if col == "Lighting"
-                else 0.3
-            )
-            for col in profiles_weekday.columns
-        }
+        # Work-shift betas define how strongly each end use follows the schedule.
+        shift_betas = {}
+        for column in profiles_weekday.columns:
+            if column in HIGH_SHIFT_BETA_COLUMNS:
+                shift_betas[column] = 0.85
+            elif column == "Lighting":
+                shift_betas[column] = 0.7
+            else:
+                shift_betas[column] = 0.3
+
         profiles_weekday, profiles_saturday, profiles_sunday, profiles_holiday = (
             module_work_shift.apply_work_shifts(
                 profiles_weekday,
@@ -282,6 +331,7 @@ def build_electric_daily_profiles(
             )
         )
 
+    # Align weights with the final profile columns before multiplying.
     weights = weights.reindex(profiles_weekday.columns).fillna(0.0)
 
     # Apply weights and add Total columns for every day type.
@@ -290,8 +340,15 @@ def build_electric_daily_profiles(
     sunday_profiles = _apply_profile_weights(profiles_sunday, weights)
     holiday_profiles = _apply_profile_weights(profiles_holiday, weights)
     constant_profiles = _apply_profile_weights(profiles_constant, weights)
-    
-    return weekday_profiles, saturday_profiles, sunday_profiles, holiday_profiles, constant_profiles, data_industry_type
+
+    return (
+        weekday_profiles,
+        saturday_profiles,
+        sunday_profiles,
+        holiday_profiles,
+        constant_profiles,
+        data_industry_type,
+    )
 
 
 def build_thermal_daily_profiles(
