@@ -1,37 +1,10 @@
-"""Evaluation utilities for comparing MATLAB and generated load profiles.
-
-This module compares the MATLAB reference profile stored in
-``Helpers/regression_load_profiles/Perfil_MATLAB.csv`` with the generated
-Python profile stored in
-``Generated/load_profiles/iDesign_RES_Iron and steel_ISI-DE.xlsx``.
-
-It can be executed directly from the repository root:
-
-    python Modules/module_eval.py
-
-The comparison reports several R2 variants:
-- Point-by-point comparison after annual-energy normalization.
-- Point-by-point comparison after z-score normalization.
-- Point-by-point comparison after min-max normalization.
-- Best z-score comparison after testing temporal shifts up to one week.
-- Load-duration-curve comparison, which ignores calendar order and compares
-  the annual distribution of load values.
-"""
-
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-# scikit-learn is preferred when available. A local fallback is kept so the
-# script still works in environments where sklearn is not installed.
-try:
-    from sklearn.metrics import r2_score
-except ImportError:  # pragma: no cover - used only when sklearn is unavailable.
-    r2_score = None
+from sklearn.metrics import r2_score
 
-
-# Default repository paths used when the script is executed directly.
 BASE_PATH = Path(__file__).resolve().parents[1]
 MATLAB_PROFILE = BASE_PATH / "Helpers" / "regression_load_profiles" / "Perfil_MATLAB.csv"
 PYTHON_PROFILE = (
@@ -42,63 +15,12 @@ PYTHON_PROFILE = (
 )
 
 
-def _r2_score(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    """Calculate the standard coefficient of determination.
-
-    Parameters
-    ----------
-    y_true:
-        Reference values. In this module, this is the MATLAB profile.
-    y_pred:
-        Values to evaluate. In this module, this is the generated Python
-        profile.
-
-    Returns
-    -------
-    float
-        R2 score. A value close to 1 means high similarity. Values below 0 are
-        possible when the prediction is worse than using the mean of y_true.
-
-    Notes
-    -----
-    The function uses ``sklearn.metrics.r2_score`` when available. If sklearn is
-    not installed, it applies the mathematical definition directly.
-    """
-
-    if r2_score is not None:
-        return float(r2_score(y_true, y_pred))
-
-    # Fallback implementation:
-    # R2 = 1 - residual_sum_of_squares / total_sum_of_squares
-    ss_res = np.sum((y_true - y_pred) ** 2)
-    ss_tot = np.sum((y_true - np.mean(y_true)) ** 2)
-    if ss_tot == 0:
-        return 1.0 if ss_res == 0 else 0.0
-    return float(1 - (ss_res / ss_tot))
-
+""" Helpers """
 
 def _clean_profile(values: pd.Series, profile_name: str) -> np.ndarray:
-    """Convert a profile column into a clean numeric numpy array.
-
-    Parameters
-    ----------
-    values:
-        Pandas series read from a CSV or Excel column.
-    profile_name:
-        Human-readable profile name used in error messages.
-
-    Returns
-    -------
-    numpy.ndarray
-        Numeric profile values with non-numeric rows removed.
-
-    How to use
-    ----------
-    Use this helper after reading a column that may include header/unit rows,
-    for example the Excel ``Total`` column where the first metadata row says
-    ``in kW``.
     """
-
+    Convert a profile column into a clean numeric numpy array.
+    """
     # Unit/header rows become NaN and are removed. This keeps only real data.
     values = pd.to_numeric(values, errors="coerce").dropna().to_numpy(dtype=float)
 
@@ -109,89 +31,23 @@ def _clean_profile(values: pd.Series, profile_name: str) -> np.ndarray:
 
 
 def _normalize_profile(values: np.ndarray, profile_name: str) -> np.ndarray:
-    """Normalize a profile by its annual total energy.
-
-    Parameters
-    ----------
-    values:
-        Original profile values.
-    profile_name:
-        Human-readable profile name used in error messages.
-
-    Returns
-    -------
-    numpy.ndarray
-        Values divided by their annual sum.
-
-    How to use
-    ----------
-    Use this normalization when the profiles have different units or scales but
-    you want to compare how annual demand is distributed over time.
     """
-
+    Normalize a profile by its annual total energy.
+    """
     total = np.sum(values)
     if total == 0:
         raise ValueError(f"{profile_name} cannot be normalized because its sum is 0.")
     return values / total
 
 
-def _zscore_profile(values: np.ndarray, profile_name: str) -> np.ndarray:
-    """Normalize a profile using z-score standardization.
-
-    Parameters
-    ----------
-    values:
-        Original profile values.
-    profile_name:
-        Human-readable profile name used in error messages.
-
-    Returns
-    -------
-    numpy.ndarray
-        Standardized values with mean 0 and standard deviation 1.
-
-    How to use
-    ----------
-    Use z-score when the absolute scale is not important and the goal is to
-    compare relative deviations from each profile's average behavior.
+def _shift_to_time(shift: int, minutes_per_sample: int = 15) -> str:
     """
-
-    std = np.std(values)
-    if std == 0:
-        raise ValueError(
-            f"{profile_name} cannot be z-score normalized because its standard "
-            "deviation is 0."
-        )
-    return (values - np.mean(values)) / std
-
-
-def _minmax_profile(values: np.ndarray, profile_name: str) -> np.ndarray:
-    """Normalize a profile to the [0, 1] range.
-
-    Parameters
-    ----------
-    values:
-        Original profile values.
-    profile_name:
-        Human-readable profile name used in error messages.
-
-    Returns
-    -------
-    numpy.ndarray
-        Values scaled between 0 and 1.
-
-    How to use
-    ----------
-    Use min-max normalization when you want to compare the relative position of
-    each point between the minimum and maximum observed demand.
+    Convert a sample shift into a readable time offset.
     """
-
-    value_range = np.max(values) - np.min(values)
-    if value_range == 0:
-        raise ValueError(
-            f"{profile_name} cannot be min-max normalized because its range is 0."
-        )
-    return (values - np.min(values)) / value_range
+    total_minutes = abs(shift) * minutes_per_sample
+    hours, minutes = divmod(total_minutes, 60)
+    sign = "-" if shift < 0 else "+"
+    return f"{sign}{hours} h {minutes} min"
 
 
 def _best_shift_r2(
@@ -246,86 +102,65 @@ def _best_shift_r2(
     return best_r2, best_r2_corr, best_shift
 
 
-def _shift_to_time(shift: int, minutes_per_sample: int = 15) -> str:
-    """Convert a sample shift into a readable time offset.
+""" Scores """
+
+def _r2_score(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Calculate the standard coefficient of determination.
 
     Parameters
     ----------
-    shift:
-        Number of samples shifted. Negative means the Python profile is shifted
-        backwards.
-    minutes_per_sample:
-        Temporal resolution of each sample. The current profiles use 15-minute
-        intervals.
+    y_true:
+        Reference values. In this module, this is the MATLAB profile.
+    y_pred:
+        Values to evaluate. In this module, this is the generated Python
+        profile.
 
     Returns
     -------
-    str
-        Human-readable offset, for example ``-1 h 15 min``.
+    float
+        R2 score. A value close to 1 means high similarity. Values below 0 are
+        possible when the prediction is worse than using the mean of y_true.
+
+    Notes
+    -----
+    The function uses ``sklearn.metrics.r2_score`` when available. If sklearn is
+    not installed, it applies the mathematical definition directly.
     """
 
-    total_minutes = abs(shift) * minutes_per_sample
-    hours, minutes = divmod(total_minutes, 60)
-    sign = "-" if shift < 0 else "+"
-    return f"{sign}{hours} h {minutes} min"
+    if r2_score is not None:
+        return float(r2_score(y_true, y_pred))
 
+    # Fallback implementation:
+    # R2 = 1 - residual_sum_of_squares / total_sum_of_squares
+    ss_res = np.sum((y_true - y_pred) ** 2)
+    ss_tot = np.sum((y_true - np.mean(y_true)) ** 2)
+    if ss_tot == 0:
+        return 1.0 if ss_res == 0 else 0.0
+    return float(1 - (ss_res / ss_tot))
 
-def load_matlab_profile(path: Path = MATLAB_PROFILE) -> np.ndarray:
-    """Load the MATLAB reference profile from CSV.
-
-    Parameters
-    ----------
-    path:
-        Path to the MATLAB CSV file. The default points to
-        ``Helpers/regression_load_profiles/Perfil_MATLAB.csv``.
-
-    Returns
-    -------
-    numpy.ndarray
-        Clean numeric MATLAB profile.
-
-    How to use
-    ----------
-    Call ``load_matlab_profile()`` with no arguments to use the default file, or
-    pass another ``Path`` to compare a different MATLAB export.
+def _zscore_profile(values: np.ndarray, profile_name: str) -> np.ndarray:
     """
-
-    # The MATLAB export has a single numeric column and no useful header.
-    df = pd.read_csv(path, header=None)
-    return _clean_profile(df.iloc[:, 0], "Perfil_MATLAB.csv")
-
-
-def load_python_profile(path: Path = PYTHON_PROFILE) -> np.ndarray:
-    """Load the generated Python profile from Excel.
-
-    Parameters
-    ----------
-    path:
-        Path to the generated ``.xlsx`` load profile. The default points to
-        ``Generated/load_profiles/iDesign_RES_Iron and steel_ISI-DE.xlsx``.
-
-    Returns
-    -------
-    numpy.ndarray
-        Clean numeric values from the Excel ``Total`` column.
-
-    How to use
-    ----------
-    Call ``load_python_profile()`` with no arguments to use the default file, or
-    pass another generated profile path. The function searches for the ``Total``
-    column case-insensitively and ignores surrounding spaces.
+    Normalize a profile using z-score standardization.
     """
+    std = np.std(values)
+    if std == 0:
+        raise ValueError(
+            f"{profile_name} cannot be z-score normalized because its standard "
+            "deviation is 0."
+        )
+    return (values - np.mean(values)) / std
 
-    df = pd.read_excel(path)
 
-    # The relevant demand series is the total load, stored in the Excel column
-    # named "Total" (column H in the current exported file).
-    total_columns = [
-        column for column in df.columns if str(column).strip().lower() == "total"
-    ]
-    if not total_columns:
-        raise ValueError(f"The 'Total' column was not found in {path}")
-    return _clean_profile(df[total_columns[0]], path.name)
+def _minmax_profile(values: np.ndarray, profile_name: str) -> np.ndarray:
+    """
+    Normalize a profile to the [0, 1] range.
+    """
+    value_range = np.max(values) - np.min(values)
+    if value_range == 0:
+        raise ValueError(
+            f"{profile_name} cannot be min-max normalized because its range is 0."
+        )
+    return (values - np.min(values)) / value_range
 
 
 def calculate_determination_coefficients(
@@ -377,22 +212,20 @@ def calculate_determination_coefficients(
     return r2, float(r2_corr)
 
 
-def main() -> None:
-    """Run all default comparisons and print the results.
+def main():
+    # The MATLAB export has a single numeric column and no useful header
+    df_matlab = pd.read_csv(MATLAB_PROFILE, header=None)
+    y_true = _clean_profile(df_matlab.iloc[:, 0], "Perfil_MATLAB.csv")
 
-    How to use
-    ----------
-    Execute this file directly:
-
-        python Modules/module_eval.py
-
-    The function loads the default MATLAB and Python profiles, compares them
-    using different normalization strategies, searches for the best temporal
-    shift, and compares their load-duration curves.
-    """
-
-    y_true = load_matlab_profile()
-    y_pred = load_python_profile()
+    # The generated Excel profile stores the total load in the "Total" column
+    # (column H in the current exported file).
+    df_python = pd.read_excel(PYTHON_PROFILE)
+    total_columns = [
+        column for column in df_python.columns if str(column).strip().lower() == "total"
+    ]
+    if not total_columns:
+        raise ValueError(f"The 'Total' column was not found in {PYTHON_PROFILE}")
+    y_pred = _clean_profile(df_python[total_columns[0]], PYTHON_PROFILE.name)
 
     # 1) Annual-energy normalization compares how each profile distributes its
     # yearly total across all 15-minute samples.
@@ -438,7 +271,6 @@ def main() -> None:
 
     print(f"MATLAB profile: {MATLAB_PROFILE}")
     print(f"Python profile: {PYTHON_PROFILE}")
-    print("Excel column used: Total")
     print(f"Compared samples: {len(y_true)}")
     print("")
     print("Point-by-point temporal comparison:")
