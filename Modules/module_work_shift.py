@@ -33,7 +33,7 @@ DEFAULT_FAMILY_SETTINGS = {
             "Process heat": 0.3,
             "Continuous mechanical drive": 0.4,
             "Discontinuous mechanical drive": 0.4,
-            "Mechanical drives": 0.4,
+            "Mechanical drive": 0.4,
             "Space heating": 0.3,
             "Hot water": 0.3,
             "Space cooling": 0.3,
@@ -49,7 +49,7 @@ DEFAULT_FAMILY_SETTINGS = {
             "Process heat": 0.9,
             "Continuous mechanical drive": 0.85,
             "Discontinuous mechanical drive": 0.85,
-            "Mechanical drives": 0.85,
+            "Mechanical drive": 0.85,
             "Space heating": 0.4,
             "Hot water": 0.5,
             "Space cooling": 0.5,
@@ -65,7 +65,7 @@ DEFAULT_FAMILY_SETTINGS = {
             "Process heat": 0.8,
             "Continuous mechanical drive": 0.9,
             "Discontinuous mechanical drive": 0.9,
-            "Mechanical drives": 0.9,
+            "Mechanical drive": 0.9,
             "Space heating": 0.5,
             "Hot water": 0.5,
             "Space cooling": 0.7,
@@ -77,85 +77,50 @@ DEFAULT_FAMILY_SETTINGS = {
 }
 
 
-def _resolve_shift_settings(family, betas, ramp_minutes, schedule_by_day):
-    """Return normalized shift settings from defaults and optional overrides."""
-    family_key = str(family).strip().lower()
-    if family_key not in DEFAULT_FAMILY_SETTINGS:
-        family_key = "assembly"
-
-    default_settings = DEFAULT_FAMILY_SETTINGS[family_key]
-    beta_map = dict(default_settings["betas"])
-    if betas:
-        beta_map.update(betas)
-
-    if ramp_minutes is None:
-        ramp_up = float(default_settings["ramp_up"])
-        ramp_down = float(default_settings["ramp_down"])
-    elif isinstance(ramp_minutes, (list, tuple)) and len(ramp_minutes) == 2:
-        ramp_up = float(ramp_minutes[0])
-        ramp_down = float(ramp_minutes[1])
-    else:
-        ramp_up = float(ramp_minutes)
-        ramp_down = float(ramp_minutes)
-
-    schedule = schedule_by_day if schedule_by_day is not None else DEFAULT_SHIFT_SCHEDULES
-    return beta_map, ramp_up, ramp_down, schedule
-
-
-def _normalize_shift_type(shift_type):
-    """Return a supported shift type: 1, 2, or 3."""
-    try:
-        shift_type = int(shift_type)
-    except (TypeError, ValueError):
-        return 2
-
-    return shift_type if shift_type in (1, 2, 3) else 2
-
-
 def _build_activity_curve(n_steps, work_window, ramp_up, ramp_down):
-    """Build a daily activity curve from a work window and ramp durations."""
+    """
+    Build a daily activity curve from a work window and ramp durations.
+    """
+    # No work window means no scheduled activity for this day type.
     if work_window is None:
         return np.zeros(n_steps, dtype=float)
 
+    # Convert the work window from hours to minutes within the day.
     start_hour, end_hour = work_window
     start_minute = float(start_hour) * 60
     end_minute = float(end_hour) * 60
 
+    # A full-day window is already constant activity.
     if start_minute <= 0 and end_minute >= 24 * 60:
         return np.ones(n_steps, dtype=float)
 
+    # Build one value per profile row, assuming the profile covers one day.
     step_minutes = 24 * 60 / n_steps
     minutes = np.arange(n_steps) * step_minutes
     activity = np.zeros(n_steps, dtype=float)
 
+    # Clamp ramps so they never extend outside the day boundaries.
     ramp_up = max(0.0, min(float(ramp_up), start_minute))
     ramp_down = max(0.0, min(float(ramp_down), 24 * 60 - end_minute))
 
     for i, minute in enumerate(minutes):
+        # Ramp up linearly before the shift starts.
         if ramp_up > 0 and (start_minute - ramp_up) <= minute < start_minute:
             activity[i] = (minute - (start_minute - ramp_up)) / ramp_up
+        # During the shift, activity is fully on.
         elif start_minute <= minute < end_minute:
             activity[i] = 1.0
+        # Ramp down linearly after the shift ends.
         elif ramp_down > 0 and end_minute <= minute < (end_minute + ramp_down):
             activity[i] = 1.0 - (minute - end_minute) / ramp_down
 
     return activity
 
 
-def _beta_for_column(column, beta_map):
-    """Return the beta assigned to a profile column."""
-    if column == "Mechanical drive":
-        column = "Mechanical drives"
-
-    beta = beta_map.get(column)
-    if beta is None and column in ("Continuous mechanical drive", "Discontinuous mechanical drive"):
-        beta = beta_map.get("Mechanical drives")
-
-    return float(beta) if beta is not None else 0.0
-
-
 def _apply_shift_to_day(profile, day_type, shift_type, beta_map, ramp_up, ramp_down, schedules, rescale):
-    """Apply the configured shift activity curve to one day-type profile."""
+    """
+    Apply the configured shift activity curve to one day-type profile.
+    """
     if profile is None:
         return None
     if not isinstance(profile, pd.DataFrame):
@@ -165,16 +130,19 @@ def _apply_shift_to_day(profile, day_type, shift_type, beta_map, ramp_up, ramp_d
     if shifted_profile.empty:
         return shifted_profile
 
+    # Select the configured work window for this day type and shift pattern.
     work_window = schedules.get(day_type, {}).get(shift_type)
     activity = _build_activity_curve(len(shifted_profile), work_window, ramp_up, ramp_down)
     application_columns = [column for column in shifted_profile.columns if column != "Total"]
 
     for column in application_columns:
-        beta = _beta_for_column(column, beta_map)
+        # Beta controls how much this end use follows the activity curve.
+        beta = float(beta_map.get(column, 0.0))
         multiplier = (1.0 - beta) + beta * activity
         adjusted_values = shifted_profile[column].astype(float).to_numpy() * multiplier
 
         if rescale:
+            # Preserve the original daily energy after reshaping the profile.
             original_sum = float(shifted_profile[column].sum())
             adjusted_sum = float(adjusted_values.sum())
             if adjusted_sum > 0:
@@ -183,6 +151,7 @@ def _apply_shift_to_day(profile, day_type, shift_type, beta_map, ramp_up, ramp_d
         shifted_profile[column] = adjusted_values
 
     if "Total" in shifted_profile.columns:
+        # Recompute Total from the adjusted application columns.
         shifted_profile["Total"] = shifted_profile[application_columns].sum(axis=1)
 
     return shifted_profile
@@ -206,13 +175,33 @@ def apply_work_shifts(
     Beta controls how strongly each application follows the shift schedule:
     0.0 keeps the original shape, 1.0 fully follows the activity curve.
     """
-    shift_type = _normalize_shift_type(shift_type)
-    beta_map, ramp_up, ramp_down, schedules = _resolve_shift_settings(
-        family=family,
-        betas=betas,
-        ramp_minutes=ramp_minutes,
-        schedule_by_day=schedule_by_day,
-    )
+    try:
+        shift_type = int(shift_type)
+    except (TypeError, ValueError):
+        shift_type = 2
+    if shift_type not in (1, 2, 3):
+        shift_type = 2
+
+    family_key = str(family).strip().lower()
+    if family_key not in DEFAULT_FAMILY_SETTINGS:
+        family_key = "assembly"
+
+    default_settings = DEFAULT_FAMILY_SETTINGS[family_key]
+    beta_map = dict(default_settings["betas"])
+    if betas:
+        beta_map.update(betas)
+
+    if ramp_minutes is None:
+        ramp_up = float(default_settings["ramp_up"])
+        ramp_down = float(default_settings["ramp_down"])
+    elif isinstance(ramp_minutes, (list, tuple)) and len(ramp_minutes) == 2:
+        ramp_up = float(ramp_minutes[0])
+        ramp_down = float(ramp_minutes[1])
+    else:
+        ramp_up = float(ramp_minutes)
+        ramp_down = float(ramp_minutes)
+
+    schedules = schedule_by_day if schedule_by_day is not None else DEFAULT_SHIFT_SCHEDULES
 
     shifted_profiles = []
     for day_type, profile in {
