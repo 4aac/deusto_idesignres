@@ -200,12 +200,23 @@ def _save_and_finish(fig, output_path):
         plt.show()
 
 
-def year_electrical_summed(df, industry_name, industry_type, base_path):
+def _electrical_title(industry_name, industry_type, country_code, year, weights_mode):
+    return f"WZ08 {industry_type} {industry_name} | {country_code} | {int(year)} | {weights_mode}"
+
+
+def _electrical_file_name(industry_name, industry_type, country_code, year, weights_mode):
+    return (
+        f"iDesign_RES_{_safe_name(country_code)}_{_safe_name(industry_type)}_"
+        f"{_safe_name(industry_name)}_{int(year)}_{_safe_name(weights_mode)}_Diagram.png"
+    )
+
+
+def year_electrical_summed(df, industry_name, industry_type, country_code, year, base_path):
     """Save the annual electrical diagram for the summed six-category profile."""
     df = _flatten_columns(df)
     labels = _select_labels(df, ELECTRIC_SUMMED_LABELS)
     colors = ELECTRIC_SUMMED_COLORS if labels == ELECTRIC_SUMMED_LABELS else _auto_colors(len(labels))
-    title = f"WZ08 {industry_type} {industry_name}"
+    title = _electrical_title(industry_name, industry_type, country_code, year, "summed")
 
     fig = _draw_stack_plot(
         df=df,
@@ -215,7 +226,8 @@ def year_electrical_summed(df, industry_name, industry_type, base_path):
         y_scale=ELECTRIC_Y_SCALE,
     )
 
-    output_path = Path(base_path) / "Generated" / "diagrams" / f"{industry_name}_Diagram.png"
+    file_name = _electrical_file_name(industry_name, industry_type, country_code, year, "summed")
+    output_path = Path(base_path) / "Generated" / "diagrams" / file_name
     _save_and_finish(fig, output_path)
 
 
@@ -224,7 +236,7 @@ def year_electrical_unsummed(df, industry_name, industry_type, country_code, yea
     df = _flatten_columns(df)
     labels = _select_labels(df)
     colors = _auto_colors(len(labels))
-    title = f"WZ08 {industry_type} {industry_name} | {country_code} | {year} | unsummed (rerun)"
+    title = _electrical_title(industry_name, industry_type, country_code, year, "unsummed")
 
     fig = _draw_stack_plot(
         df=df,
@@ -235,10 +247,7 @@ def year_electrical_unsummed(df, industry_name, industry_type, country_code, yea
         legend_below=True,
     )
 
-    file_name = (
-        f"iDesign_RES_{_safe_name(country_code)}_{_safe_name(industry_type)}_"
-        f"{_safe_name(industry_name)}_{int(year)}_unsummed_rerun_Diagram.png"
-    )
+    file_name = _electrical_file_name(industry_name, industry_type, country_code, year, "unsummed")
     output_path = Path(base_path) / "Generated" / "diagrams" / file_name
     _save_and_finish(fig, output_path)
 

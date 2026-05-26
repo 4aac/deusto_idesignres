@@ -94,6 +94,8 @@ def run(industry_number, industry_code, industry_name, year, base_path, country_
             final_profile,
             industry_name,
             industry_code,
+            country_code,
+            year,
             base_path,
         )
 
