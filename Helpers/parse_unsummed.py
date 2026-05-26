@@ -26,7 +26,7 @@ COLOR_GROUP_PREFIXES = {
 def _default_jrc_idees_path(jrc_idees_path=None):
     if jrc_idees_path is not None:
         return Path(jrc_idees_path)
-    base_dir = Path(__file__).resolve().parent
+    base_dir = Path(__file__).resolve().parents[1]
     return base_dir / "Data" / "General" / "JRC-IDEES"
 
 
@@ -244,12 +244,13 @@ def extract_subsector_blocks(df, ws=None):
                 if subsector_row is None:
                     continue
                 lighting_meta.append(
-                    {
-                        "lighting_row": r,
-                        "subsector_name_row": subsector_row,
-                        "subsector_name": _clean_str(df.iat[subsector_row, 0]),
-                    }
-                )
+                {
+                    "lighting_row": r,
+                    "subsector_name_row": subsector_row,
+                    "subsector_name": _clean_str(df.iat[subsector_row, 0]),
+                    "subsector_total": _row_values(df, subsector_row, col_indexes),
+                }
+            )
 
         for idx, info in enumerate(lighting_meta):
             start_row = info["lighting_row"]
@@ -271,6 +272,7 @@ def extract_subsector_blocks(df, ws=None):
                     "years": years,
                     "variables": variables,
                     "subsector_name": info["subsector_name"],
+                    "subsector_total": info["subsector_total"],
                 }
             )
 
@@ -318,18 +320,23 @@ def aggregate_sector_blocks_to_six_rows_with_total(blocks):
         return None
 
     years = blocks[0]["years"]
-    n_subsectors = len(blocks)
-
     core_sums = {name: [0.0] * len(years) for name in CORE_VARIABLES}
     other_sums = [0.0] * len(years)
+    weight_sums = [0.0] * len(years)
 
     for block in blocks:
         variables = block["variables"]
+        subsector_total = block.get("subsector_total", [])
         for i, _year in enumerate(years):
+            weight = _to_float(subsector_total[i] if i < len(subsector_total) else 1.0)
+            if weight <= 0.0:
+                continue
+
+            weight_sums[i] += weight
             for core_name in CORE_VARIABLES:
                 values = variables.get(core_name, [])
                 value = values[i] if i < len(values) else 0.0
-                core_sums[core_name][i] += _to_float(value)
+                core_sums[core_name][i] += _to_float(value) * weight
 
             other_total_this_subsector = 0.0
             for var_name, values in variables.items():
@@ -337,13 +344,19 @@ def aggregate_sector_blocks_to_six_rows_with_total(blocks):
                     continue
                 value = values[i] if i < len(values) else 0.0
                 other_total_this_subsector += _to_float(value)
-            other_sums[i] += other_total_this_subsector
+            other_sums[i] += other_total_this_subsector * weight
 
     core_means = {
-        name: [value / n_subsectors for value in values]
+        name: [
+            value / weight_sums[i] if weight_sums[i] else 0.0
+            for i, value in enumerate(values)
+        ]
         for name, values in core_sums.items()
     }
-    other_means = [value / n_subsectors for value in other_sums]
+    other_means = [
+        value / weight_sums[i] if weight_sums[i] else 0.0
+        for i, value in enumerate(other_sums)
+    ]
 
     final_rows = {name: core_means[name] for name in CORE_VARIABLES}
     final_rows[OTHER_ROW_NAME] = other_means
@@ -384,10 +397,10 @@ def export_aggregated_country_files(output_dir=None, jrc_idees_path=None):
     jrc_idees_path = _default_jrc_idees_path(jrc_idees_path)
     if output_dir is None:
         output_dir = (
-            Path(__file__).resolve().parent
+            Path(__file__).resolve().parents[1]
             / "Data"
             / "General"
-            / "JRC-IDEES_final_energy_consumption_by_country_aggregated6_total"
+            / "JRC-IDEES_final_energy_consumption_by_country_summed"
         )
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -401,7 +414,7 @@ def export_aggregated_country_files(output_dir=None, jrc_idees_path=None):
         if not blocks_by_sector:
             continue
 
-        country_output = output_dir / f"{country_code}_final_energy_consumption_aggregated6_total.xlsx"
+        country_output = output_dir / f"{country_code}_final_energy_consumption_summed.xlsx"
         used_sheet_names = set()
         local_sheets = 0
 

@@ -25,7 +25,7 @@ COLOR_GROUP_PREFIXES = {
 def _default_jrc_idees_path(jrc_idees_path=None):
     if jrc_idees_path is not None:
         return Path(jrc_idees_path)
-    base_dir = Path(__file__).resolve().parent
+    base_dir = Path(__file__).resolve().parents[1]
     return base_dir / "Data" / "General" / "JRC-IDEES"
 
 
@@ -122,6 +122,14 @@ def _to_clean_str(value):
     if isinstance(value, str):
         return value.strip()
     return None
+
+
+def _to_float(value):
+    if value is None or pd.isna(value):
+        return 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+    return 0.0
 
 
 def _find_row_by_label(df, label, start_row=0, end_row=None, case_sensitive=False):
@@ -366,6 +374,7 @@ def extract_market_share_blocks_by_lighting(df, ws=None):
                             "lighting_row": r,
                             "sector_name_row": sector_name_row,
                             "sector_name": _to_clean_str(df.iat[sector_name_row, 0]),
+                            "sector_total": _row_values(df, sector_name_row, col_indexes),
                         }
                     )
 
@@ -387,6 +396,8 @@ def extract_market_share_blocks_by_lighting(df, ws=None):
 
             if not variables:
                 continue
+            if not any(_to_float(value) > 0.0 for value in info["sector_total"]):
+                continue
 
             variables_by_year = {name: _values_by_year(years, vals) for name, vals in variables.items()}
             blocks.append(
@@ -399,6 +410,7 @@ def extract_market_share_blocks_by_lighting(df, ws=None):
                     "energy_row": energy_row,
                     "lighting_row": info["lighting_row"],
                     "sector_name_row": info["sector_name_row"],
+                    "sector_total": info["sector_total"],
                 }
             )
 
@@ -569,7 +581,7 @@ def export_fec_all_countries_to_excel(output_path=None, jrc_idees_path=None):
     jrc_idees_path = _default_jrc_idees_path(jrc_idees_path)
     if output_path is None:
         output_path = (
-            Path(__file__).resolve().parent
+            Path(__file__).resolve().parents[1]
             / "Data"
             / "General"
             / "JRC-IDEES_final_energy_consumption_all_countries.xlsx"
@@ -660,10 +672,10 @@ def export_fec_country_files_by_sector(output_dir=None, jrc_idees_path=None):
     jrc_idees_path = _default_jrc_idees_path(jrc_idees_path)
     if output_dir is None:
         output_dir = (
-            Path(__file__).resolve().parent
+            Path(__file__).resolve().parents[1]
             / "Data"
             / "General"
-            / "JRC-IDEES_final_energy_consumption_by_country"
+            / "JRC-IDEES_final_energy_consumption_by_country_unsummed"
         )
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -680,7 +692,7 @@ def export_fec_country_files_by_sector(output_dir=None, jrc_idees_path=None):
         if not extracted_by_sheet:
             continue
 
-        country_output = output_dir / f"{country_code}_final_energy_consumption.xlsx"
+        country_output = output_dir / f"{country_code}_final_energy_consumption_unsummed.xlsx"
         used_sheet_names = set()
         local_sheets = 0
 

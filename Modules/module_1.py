@@ -17,12 +17,12 @@ HIGH_SHIFT_BETA_COLUMNS = {"Motor drives", "Air compressors", "Fans and pumps"}
 
 WEIGHT_MODE_FILES = {
     "summed": {
-        "folder": "JRC-IDEES_final_energy_consumption_by_country_aggregated6_total",
-        "filename_template": "{country_code}_final_energy_consumption_aggregated6_total.xlsx",
+        "folder": "JRC-IDEES_final_energy_consumption_by_country_summed",
+        "filename_template": "{country_code}_final_energy_consumption_summed.xlsx",
     },
     "unsummed": {
-        "folder": "JRC-IDEES_final_energy_consumption_by_country_rerun",
-        "filename_template": "{country_code}_final_energy_consumption.xlsx",
+        "folder": "JRC-IDEES_final_energy_consumption_by_country_unsummed",
+        "filename_template": "{country_code}_final_energy_consumption_unsummed.xlsx",
     },
 }
 
@@ -139,7 +139,9 @@ def _read_summed_electric_weights(weights_path, sector_code, year):
         if clean_label in weights:
             weights[clean_label] = float(df.iat[r, year_col])
 
-    return pd.Series(weights, dtype=float)
+    weights = pd.Series(weights, dtype=float)
+    total = weights.sum()
+    return weights / total if total > 0.0 else weights
 
 
 def _read_unsummed_electric_weights(weights_path, sector_code, year):
@@ -155,13 +157,17 @@ def _read_unsummed_electric_weights(weights_path, sector_code, year):
                 continue
 
             df = pd.read_excel(xls, sheet_name=sheet_name, header=None)
-            sheet_weights.append(_read_unsummed_sheet_weights(df, year))
+            weights = _read_unsummed_sheet_weights(df, year)
+            if weights.sum() > 0.0:
+                sheet_weights.append(weights)
 
     if not sheet_weights:
         return pd.Series(dtype=float)
 
-    # Average detailed weights across all sector sheets that matched the code.
-    return pd.concat(sheet_weights, axis=1).fillna(0.0).mean(axis=1)
+    # Average detailed weights across active sector sheets that matched the code.
+    weights = pd.concat(sheet_weights, axis=1).fillna(0.0).mean(axis=1)
+    total = weights.sum()
+    return weights / total if total > 0.0 else weights
 
 
 def _sheet_matches_sector(sheet_name, sector):
