@@ -50,8 +50,7 @@ def _best_shift_r2(
     y_pred:
         Profile to shift and evaluate.
     max_shift:
-        Maximum number of samples to shift in both directions. With 15-minute
-        samples, 672 means one week.
+        Maximum number of samples to shift in both directions.
     predictors:
         Number of predictors used for adjusted R2.
 
@@ -66,8 +65,8 @@ def _best_shift_r2(
     after shifting suggests a calendar or timestamp alignment issue.
     """
 
-    best_r2 = -np.inf
-    best_r2_corr = -np.inf
+    best_r2 = -float("inf")
+    best_r2_corr = -float("inf")
     best_shift = 0
 
     # np.roll applies a circular shift: values leaving one side enter again on
@@ -87,42 +86,6 @@ def _best_shift_r2(
     return best_r2, best_r2_corr, best_shift
 
 
-""" Scores """
-
-def _r2_score(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    """Calculate the standard coefficient of determination.
-
-    Parameters
-    ----------
-    y_true:
-        Reference values. In this module, this is the MATLAB profile.
-    y_pred:
-        Values to evaluate. In this module, this is the generated Python
-        profile.
-
-    Returns
-    -------
-    float
-        R2 score. A value close to 1 means high similarity. Values below 0 are
-        possible when the prediction is worse than using the mean of y_true.
-
-    Notes
-    -----
-    The function uses ``sklearn.metrics.r2_score`` when available. If sklearn is
-    not installed, it applies the mathematical definition directly.
-    """
-
-    if r2_score is not None:
-        return float(r2_score(y_true, y_pred))
-
-    # Fallback implementation:
-    # R2 = 1 - residual_sum_of_squares / total_sum_of_squares
-    ss_res = np.sum((y_true - y_pred) ** 2)
-    ss_tot = np.sum((y_true - np.mean(y_true)) ** 2)
-    if ss_tot == 0:
-        return 1.0 if ss_res == 0 else 0.0
-    return float(1 - (ss_res / ss_tot))
-
 def _zscore_profile(values: np.ndarray, profile_name: str) -> np.ndarray:
     """
     Normalize a profile using z-score standardization.
@@ -134,18 +97,6 @@ def _zscore_profile(values: np.ndarray, profile_name: str) -> np.ndarray:
             "deviation is 0."
         )
     return (values - np.mean(values)) / std
-
-
-def _minmax_profile(values: np.ndarray, profile_name: str) -> np.ndarray:
-    """
-    Normalize a profile to the [0, 1] range.
-    """
-    value_range = np.max(values) - np.min(values)
-    if value_range == 0:
-        raise ValueError(
-            f"{profile_name} cannot be min-max normalized because its range is 0."
-        )
-    return (values - np.min(values)) / value_range
 
 
 def calculate_determination_coefficients(
@@ -189,7 +140,7 @@ def calculate_determination_coefficients(
             f"{predictors} predictors."
         )
 
-    r2 = _r2_score(y_true, y_pred)
+    r2 = float(r2_score(y_true, y_pred))
 
     # Adjusted R2 penalizes the score by the number of predictors:
     # R2_corr = 1 - ((1 - R2) * (n - 1)) / (n - k - 1)
@@ -233,11 +184,12 @@ def main():
         y_pred_zscore,
     )
 
-    # 3) Check whether a calendar/time offset improves the temporal match.
+    # 3) Check whether any calendar/time offset improves the temporal match.
+    max_temporal_shift = len(y_true_zscore) - 1
     best_r2_zscore, best_r2_corr_zscore, best_shift_zscore = _best_shift_r2(
         y_true_zscore,
         y_pred_zscore,
-        max_shift=672,
+        max_shift=max_temporal_shift,
     )
 
     # 4) Load-duration curve comparison sorts both profiles from highest to
@@ -249,15 +201,6 @@ def main():
         y_pred_duration,
     )
 
-    # 5) Min-max normalization compares each value's relative position between
-    # the profile minimum and maximum.
-    y_true_minmax = _minmax_profile(y_true, "Perfil_MATLAB.csv")
-    y_pred_minmax = _minmax_profile(y_pred, PYTHON_PROFILE.name)
-    r2_minmax, r2_corr_minmax = calculate_determination_coefficients(
-        y_true_minmax,
-        y_pred_minmax,
-    )
-
     print(f"MATLAB profile: {MATLAB_PROFILE}")
     print(f"Python profile: {PYTHON_PROFILE}")
     print(f"Compared samples: {len(y_true)}")
@@ -267,10 +210,8 @@ def main():
     print(f"R^2_corr annual-energy normalized: {r2_corr_annual:.4f}")
     print(f"R^2 z-score: {r2_zscore:.4f}")
     print(f"R^2_corr z-score: {r2_corr_zscore:.4f}")
-    print(f"R^2 min-max: {r2_minmax:.4f}")
-    print(f"R^2_corr min-max: {r2_corr_minmax:.4f}")
     print("")
-    print("Best temporal comparison with maximum shift of +/- 1 week:")
+    print("Best temporal comparison over all possible shifts:")
     print(f"Shift applied to the Python profile: {best_shift_zscore} samples")
     print(f"Time equivalent: {_shift_to_time(best_shift_zscore)}")
     print(f"R^2 z-score with shift: {best_r2_zscore:.4f}")
