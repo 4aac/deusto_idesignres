@@ -15,21 +15,6 @@ PYTHON_PROFILE = (
 )
 
 
-""" Helpers """
-
-def _clean_profile(values: pd.Series, profile_name: str) -> np.ndarray:
-    """
-    Convert a profile column into a clean numeric numpy array.
-    """
-    # Unit/header rows become NaN and are removed. This keeps only real data.
-    values = pd.to_numeric(values, errors="coerce").dropna().to_numpy(dtype=float)
-
-    if len(values) == 0:
-        raise ValueError(f"{profile_name} does not contain valid numeric data.")
-
-    return values
-
-
 def _normalize_profile(values: np.ndarray, profile_name: str) -> np.ndarray:
     """
     Normalize a profile by its annual total energy.
@@ -213,9 +198,11 @@ def calculate_determination_coefficients(
 
 
 def main():
-    # The MATLAB export has a single numeric column and no useful header
+    # Read and clean profile
     df_matlab = pd.read_csv(MATLAB_PROFILE, header=None)
-    y_true = _clean_profile(df_matlab.iloc[:, 0], "Perfil_MATLAB.csv")
+    y_true = pd.to_numeric(df_matlab.iloc[:, 0], errors="coerce").dropna().to_numpy(
+        dtype=float
+    )
 
     # The generated Excel profile stores the total load in the "Total" column
     # (column H in the current exported file).
@@ -225,7 +212,9 @@ def main():
     ]
     if not total_columns:
         raise ValueError(f"The 'Total' column was not found in {PYTHON_PROFILE}")
-    y_pred = _clean_profile(df_python[total_columns[0]], PYTHON_PROFILE.name)
+    y_pred = pd.to_numeric(df_python[total_columns[0]], errors="coerce").dropna().to_numpy(
+        dtype=float
+    )
 
     # 1) Annual-energy normalization compares how each profile distributes its
     # yearly total across all 15-minute samples.

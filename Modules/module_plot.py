@@ -44,6 +44,16 @@ ELECTRIC_SUMMED_COLORS = [
     "#56B4E9",
 ]
 
+ELECTRIC_SFU_LABELS = [
+    "Lighting",
+    "Air compressors",
+    "Motor drives",
+    "Fans and pumps",
+    "Low-enthalpy heat",
+]
+
+ELECTRIC_SFU_COLORS = ELECTRIC_SUMMED_COLORS[: len(ELECTRIC_SFU_LABELS)]
+
 THERMAL_LABELS = [
     "Electricity Other",
     "Electricity Thermal",
@@ -227,6 +237,26 @@ def year_electrical_summed(df, industry_name, industry_type, country_code, year,
     )
 
     file_name = _electrical_file_name(industry_name, industry_type, country_code, year, "summed")
+    output_path = Path(base_path) / "Generated" / "diagrams" / file_name
+    _save_and_finish(fig, output_path)
+
+
+def year_electrical_sfu(df, industry_name, industry_type, country_code, year, base_path):
+    """Save the standard-final-uses diagram without the aggregated Others category."""
+    df = _flatten_columns(df)
+    labels = _select_labels(df, ELECTRIC_SFU_LABELS)
+    colors = ELECTRIC_SFU_COLORS if labels == ELECTRIC_SFU_LABELS else _auto_colors(len(labels))
+    title = _electrical_title(industry_name, industry_type, country_code, year, "sfu")
+
+    fig = _draw_stack_plot(
+        df=df,
+        labels=labels,
+        colors=colors,
+        title=title,
+        y_scale=ELECTRIC_Y_SCALE,
+    )
+
+    file_name = _electrical_file_name(industry_name, industry_type, country_code, year, "sfu")
     output_path = Path(base_path) / "Generated" / "diagrams" / file_name
     _save_and_finish(fig, output_path)
 

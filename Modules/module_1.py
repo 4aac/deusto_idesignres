@@ -14,9 +14,14 @@ BASE_ELECTRIC_COLUMNS = [
 ]
 
 HIGH_SHIFT_BETA_COLUMNS = {"Motor drives", "Air compressors", "Fans and pumps"}
+MEDIUM_SHIFT_BETA_COLUMNS = {"Lighting", "Others (sum mean)"}
 
 WEIGHT_MODE_FILES = {
     "summed": {
+        "folder": "JRC-IDEES_final_energy_consumption_by_country_summed",
+        "filename_template": "{country_code}_final_energy_consumption_summed.xlsx",
+    },
+    "sfu": {
         "folder": "JRC-IDEES_final_energy_consumption_by_country_summed",
         "filename_template": "{country_code}_final_energy_consumption_summed.xlsx",
     },
@@ -46,6 +51,7 @@ def _project_profiles_to_base_categories(profile_df):
     out = pd.DataFrame(index=profile_df.index)
 
     zeros = pd.Series(0.0, index=profile_df.index)
+    numeric_profile = profile_df.apply(pd.to_numeric, errors="coerce")
 
     out["Lighting"] = profile_df["Lighting"] if "Lighting" in profile_df.columns else zeros
     out["Air compressors"] = (
@@ -67,8 +73,11 @@ def _project_profiles_to_base_categories(profile_df):
     heat_cols = [c for c in ["Space heating", "Hot water", "Process heat"] if c in profile_df.columns]
     out["Low-enthalpy heat"] = profile_df[heat_cols].mean(axis=1) if heat_cols else zeros
 
-    other_cols = [c for c in ["Space cooling", "ICT"] if c in profile_df.columns]
-    out["Others (sum mean)"] = profile_df[other_cols].mean(axis=1) if other_cols else zeros
+    out["Others (sum mean)"] = (
+        numeric_profile.mean(axis=1).fillna(0.0)
+        if not numeric_profile.empty
+        else zeros
+    )
 
     return out
 
@@ -141,7 +150,7 @@ def _read_summed_electric_weights(weights_path, sector_code, year):
 
     weights = pd.Series(weights, dtype=float)
     total = weights.sum()
-    return weights / total if total > 0.0 else weights
+    return weights / total * 100.0 if total > 0.0 else weights
 
 
 def _read_unsummed_electric_weights(weights_path, sector_code, year):
@@ -167,7 +176,7 @@ def _read_unsummed_electric_weights(weights_path, sector_code, year):
     # Average detailed weights across active sector sheets that matched the code.
     weights = pd.concat(sheet_weights, axis=1).fillna(0.0).mean(axis=1)
     total = weights.sum()
-    return weights / total if total > 0.0 else weights
+    return weights / total * 100.0 if total > 0.0 else weights
 
 
 def _sheet_matches_sector(sheet_name, sector):
@@ -318,7 +327,7 @@ def build_electric_daily_profiles(
         for column in profiles_weekday.columns:
             if column in HIGH_SHIFT_BETA_COLUMNS:
                 shift_betas[column] = 0.85
-            elif column == "Lighting":
+            elif column in MEDIUM_SHIFT_BETA_COLUMNS:
                 shift_betas[column] = 0.7
             else:
                 shift_betas[column] = 0.3
