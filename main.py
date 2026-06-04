@@ -14,14 +14,14 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 #     RUN SETTINGS
 # ========================
 GENERATE_ELECTRICAL_PROFILE = True
-GENERATE_THERMAL_PROFILE = True
+GENERATE_THERMAL_PROFILE = False
 
-COUNTRY_CODE = "DE"
+COUNTRY_CODE = "FR"
 YEAR = 2018
 BASE_PATH = PROJECT_ROOT
 
-ELECTRICAL_INDUSTRY_NUMBER = 1
-ELECTRICAL_WEIGHTS_MODE = "sfu"  # Available values: "summed", "unsummed", "sfu" (standard final uses)
+ELECTRICAL_INDUSTRY_NUMBER = 6
+ELECTRICAL_WEIGHTS_MODE = "summed"  # Available values: "summed", "unsummed", "sfu" (standard final uses)
 
 THERMAL_INDUSTRY_NUMBER = 1
 
