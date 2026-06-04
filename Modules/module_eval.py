@@ -7,13 +7,25 @@ from sklearn.metrics import r2_score
 
 
 BASE_PATH = Path(__file__).resolve().parents[1]
-GENERATED_PROFILE = (
+
+
+# ========================
+#     USER SETTINGS
+# ========================
+# Edit these values to compare different files without changing the code below.
+DEFAULT_X_PATH = (
     BASE_PATH
     / "Generated"
     / "load_profiles"
     / "iDesign_RES_Iron and steel_ISI-DE.xlsx"
 )
-ELMAS_PROFILE = (
+DEFAULT_X_COLUMN = "Total"
+DEFAULT_X_RESOLUTION_MINUTES = 15
+DEFAULT_X_NAME = "Generated profile Total"
+DEFAULT_X_CSV_SEPARATOR = None
+DEFAULT_X_CSV_DECIMAL = "."
+
+DEFAULT_Y_PATH = (
     BASE_PATH
     / "Data"
     / "General"
@@ -22,6 +34,14 @@ ELMAS_PROFILE = (
     / "ELMAS_dataset"
     / "Time_series_18_clusters.csv"
 )
+DEFAULT_Y_COLUMN = "3"
+DEFAULT_Y_RESOLUTION_MINUTES = 60
+DEFAULT_Y_NAME = "Reference profile"
+DEFAULT_Y_CSV_SEPARATOR = ";"
+DEFAULT_Y_CSV_DECIMAL = ","
+
+DEFAULT_TARGET_RESOLUTION_MINUTES = 60
+DEFAULT_TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 SUPPORTED_RESOLUTIONS = {15, 60}
 
@@ -59,7 +79,11 @@ def _zscore_profile(values: np.ndarray, profile_name: str) -> np.ndarray:
     return (values - np.mean(values)) / std
 
 
-def _read_table(path: Path) -> pd.DataFrame:
+def _read_table(
+    path: Path,
+    csv_separator: str | None,
+    csv_decimal: str,
+) -> pd.DataFrame:
     """
     Read CSV or Excel input while preserving common generated-profile headers.
     """
@@ -67,10 +91,14 @@ def _read_table(path: Path) -> pd.DataFrame:
         return pd.read_excel(path)
 
     if path.suffix.lower() == ".csv":
-        df = pd.read_csv(path, sep=";", decimal=",")
-        if df.shape[1] == 1:
-            df = pd.read_csv(path)
-        return df
+        if csv_separator is not None:
+            return pd.read_csv(path, sep=csv_separator, decimal=csv_decimal)
+
+        df = pd.read_csv(path, decimal=csv_decimal)
+        if df.shape[1] > 1:
+            return df
+
+        return pd.read_csv(path, sep=";", decimal=",")
 
     raise ValueError(f"Unsupported profile file type: {path}")
 
@@ -105,13 +133,13 @@ def _find_time_column(df: pd.DataFrame) -> str | None:
     return None
 
 
-def _parse_timestamps(values: pd.Series) -> pd.Series:
+def _parse_timestamps(values: pd.Series, time_format: str | None) -> pd.Series:
     """
     Parse profile timestamps with the expected project format.
     """
     return pd.to_datetime(
         values,
-        format="%Y-%m-%d %H:%M:%S",
+        format=time_format,
         errors="coerce",
     )
 
@@ -121,6 +149,9 @@ def load_profile(
     column: str | None,
     resolution_minutes: int,
     profile_name: str,
+    csv_separator: str | None,
+    csv_decimal: str,
+    time_format: str | None,
 ) -> pd.Series:
     """
     Load one profile column as a numeric pandas Series.
@@ -131,13 +162,13 @@ def load_profile(
             f"{profile_name} resolution must be one of {sorted(SUPPORTED_RESOLUTIONS)} minutes."
         )
 
-    df = _read_table(path)
+    df = _read_table(path, csv_separator, csv_decimal)
     value_column = _find_column(df, column, path)
     values = pd.to_numeric(df[value_column], errors="coerce")
 
     time_column = _find_time_column(df)
     if time_column is not None:
-        timestamps = _parse_timestamps(df[time_column])
+        timestamps = _parse_timestamps(df[time_column], time_format)
         profile = pd.Series(values.to_numpy(), index=timestamps, name=profile_name)
         profile = profile[profile.index.notna()]
     else:
@@ -326,15 +357,20 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Evaluate two load profiles at 15-minute or 60-minute resolution."
     )
-    parser.add_argument("--x-path", type=Path, default=GENERATED_PROFILE)
-    parser.add_argument("--x-column", default="Total")
-    parser.add_argument("--x-resolution", type=int, default=15, choices=sorted(SUPPORTED_RESOLUTIONS))
-    parser.add_argument("--x-name", default="Generated profile Total")
-    parser.add_argument("--y-path", type=Path, default=ELMAS_PROFILE)
-    parser.add_argument("--y-column", default="18")
-    parser.add_argument("--y-resolution", type=int, default=60, choices=sorted(SUPPORTED_RESOLUTIONS))
-    parser.add_argument("--y-name", default="ELMAS Time_series_18_clusters column 18")
-    parser.add_argument("--resolution", type=int, default=60, choices=sorted(SUPPORTED_RESOLUTIONS))
+    parser.add_argument("--x-path", type=Path, default=DEFAULT_X_PATH)
+    parser.add_argument("--x-column", default=DEFAULT_X_COLUMN)
+    parser.add_argument("--x-resolution", type=int, default=DEFAULT_X_RESOLUTION_MINUTES, choices=sorted(SUPPORTED_RESOLUTIONS))
+    parser.add_argument("--x-name", default=DEFAULT_X_NAME)
+    parser.add_argument("--x-csv-separator", default=DEFAULT_X_CSV_SEPARATOR)
+    parser.add_argument("--x-csv-decimal", default=DEFAULT_X_CSV_DECIMAL)
+    parser.add_argument("--y-path", type=Path, default=DEFAULT_Y_PATH)
+    parser.add_argument("--y-column", default=DEFAULT_Y_COLUMN)
+    parser.add_argument("--y-resolution", type=int, default=DEFAULT_Y_RESOLUTION_MINUTES, choices=sorted(SUPPORTED_RESOLUTIONS))
+    parser.add_argument("--y-name", default=DEFAULT_Y_NAME)
+    parser.add_argument("--y-csv-separator", default=DEFAULT_Y_CSV_SEPARATOR)
+    parser.add_argument("--y-csv-decimal", default=DEFAULT_Y_CSV_DECIMAL)
+    parser.add_argument("--resolution", type=int, default=DEFAULT_TARGET_RESOLUTION_MINUTES, choices=sorted(SUPPORTED_RESOLUTIONS))
+    parser.add_argument("--time-format", default=DEFAULT_TIME_FORMAT)
     return parser.parse_args()
 
 
@@ -346,12 +382,18 @@ def main() -> None:
         args.x_column,
         args.x_resolution,
         args.x_name,
+        args.x_csv_separator,
+        args.x_csv_decimal,
+        args.time_format,
     )
     y_profile = load_profile(
         args.y_path,
         args.y_column,
         args.y_resolution,
         args.y_name,
+        args.y_csv_separator,
+        args.y_csv_decimal,
+        args.time_format,
     )
 
     x_profile = convert_resolution(
