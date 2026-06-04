@@ -14,14 +14,14 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 #     RUN SETTINGS
 # ========================
 GENERATE_ELECTRICAL_PROFILE = True
-GENERATE_THERMAL_PROFILE = True
+GENERATE_THERMAL_PROFILE = False
 
-COUNTRY_CODE = "DE"
+COUNTRY_CODE = "FR"
 YEAR = 2018
 BASE_PATH = PROJECT_ROOT
 
-ELECTRICAL_INDUSTRY_NUMBER = 1
-ELECTRICAL_WEIGHTS_MODE = "summed"  # Available values: "summed", "unsummed"
+ELECTRICAL_INDUSTRY_NUMBER = 6
+ELECTRICAL_WEIGHTS_MODE = "summed"  # Available values: "summed", "unsummed", "sfu" (standard final uses)
 
 THERMAL_INDUSTRY_NUMBER = 1
 
@@ -106,8 +106,8 @@ def main():
     if GENERATE_ELECTRICAL_PROFILE:
         if ELECTRICAL_INDUSTRY_NUMBER not in ELECTRICAL_INDUSTRIES:
             raise ValueError("Invalid ELECTRICAL_INDUSTRY_NUMBER.")
-        if ELECTRICAL_WEIGHTS_MODE not in {"summed", "unsummed"}:
-            raise ValueError("ELECTRICAL_WEIGHTS_MODE must be 'summed' or 'unsummed'.")
+        if ELECTRICAL_WEIGHTS_MODE not in {"summed", "unsummed", "sfu"}:
+            raise ValueError("ELECTRICAL_WEIGHTS_MODE must be 'summed', 'unsummed' or 'sfu'.")
 
     if GENERATE_THERMAL_PROFILE and THERMAL_INDUSTRY_NUMBER not in THERMAL_INDUSTRIES:
         raise ValueError("Invalid THERMAL_INDUSTRY_NUMBER.")

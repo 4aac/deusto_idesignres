@@ -89,6 +89,15 @@ def run(industry_number, industry_code, industry_name, year, base_path, country_
             year,
             base_path,
         )
+    elif weights_mode == "sfu":
+        module_plot.year_electrical_sfu(
+            final_profile,
+            industry_name,
+            industry_code,
+            country_code,
+            year,
+            base_path,
+        )
     else:
         module_plot.year_electrical_summed(
             final_profile,
