@@ -159,6 +159,9 @@ def seasonality(year, year_list, array_load_type,
             dayprofile["Space heating"] = dayprofile["Space heating"] * month_factor.iloc[year_list[i].month - 1]
         elif "Low-enthalpy heat" in dayprofile.columns:
             dayprofile["Low-enthalpy heat"] = dayprofile["Low-enthalpy heat"] * month_factor.iloc[year_list[i].month - 1]
+        if "Total" in dayprofile.columns:
+            application_columns = [column for column in dayprofile.columns if column != "Total"]
+            dayprofile["Total"] = dayprofile[application_columns].sum(axis=1)
         profiles.append(dayprofile)
 
     df = pd.concat(profiles, ignore_index=True)
