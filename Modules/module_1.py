@@ -31,6 +31,20 @@ WEIGHT_MODE_FILES = {
     },
 }
 
+ELECTRIC_METADATA_INDUSTRY_BY_SECTOR = {
+    "ISI": 9,   # Metal production
+    "NFM": 10,  # Non-ferrous metals and foundries
+    "CHI": 4,   # Basic chemicals
+    "NMM": 8,   # Processing of stone and earth
+    "PPA": 3,   # Paper manufacturing
+    "FBT": 2,   # Food and tobacco
+    "TRE": 13,  # Vehicle manufacturing
+    "MAE": 12,  # Machinery manufacturing
+    "TEL": 14,  # Other economic sectors
+    "WWP": 14,  # Other economic sectors
+    "OIS": 14,  # Other economic sectors
+}
+
 
 def _select_year_column(df, year):
     """Return the target year column, falling back to the latest available year."""
@@ -91,7 +105,7 @@ def _apply_profile_weights(profiles, weights):
     return y
 
 
-def _read_electric_industry_metadata(root, industry_number):
+def _read_electric_industry_metadata(root, industry_number, sector_code=None):
     """
     Read the electrical industry metadata row used by downstream modules.
     """
@@ -109,7 +123,22 @@ def _read_electric_industry_metadata(root, industry_number):
     numeric_cols = industry_info_df.select_dtypes(include="number").columns
     industry_info_df.loc[:, numeric_cols] = industry_info_df.loc[:, numeric_cols].fillna(0)
 
-    return industry_info_df[industry_info_df.industry_number.eq(industry_number)]
+    sector = str(sector_code).strip().upper() if sector_code is not None else None
+    metadata_industry_number = ELECTRIC_METADATA_INDUSTRY_BY_SECTOR.get(
+        sector,
+        industry_number,
+    )
+    selected = industry_info_df[industry_info_df.industry_number.eq(metadata_industry_number)].copy()
+    if selected.empty:
+        raise ValueError(
+            f"No electrical metadata found for sector {sector_code or industry_number} "
+            f"(metadata industry number {metadata_industry_number})."
+        )
+
+    selected["metadata_industry_number"] = selected["industry_number"]
+    selected["industry_number"] = int(industry_number)
+    selected["sector_code"] = sector
+    return selected
 
 
 def _read_electric_weights(root, weights_mode, country_code, sector_code, year):
@@ -302,7 +331,7 @@ def build_electric_daily_profiles(
         base_profiles[day_type] = _project_profiles_to_base_categories(raw_profile)
 
     # Read sector metadata and country/year application weights.
-    data_industry_type = _read_electric_industry_metadata(root, industry_number)
+    data_industry_type = _read_electric_industry_metadata(root, industry_number, sector_code)
     weights = _read_electric_weights(root, weights_mode, country_code, sector_code, year)
 
     # Unsummed weights can contain detailed labels not present in the base profiles.

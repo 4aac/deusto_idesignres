@@ -1,3 +1,5 @@
+import warnings
+
 import numpy as np
 
 
@@ -21,16 +23,26 @@ def upscale_yearly(year, df_normalized, data_industry_type):
             if col_str.startswith("Energy consumption ") or col_str.startswith("Energieverbrauch "):
                 year_token = col_str.split()[-1]
                 if year_token.isdigit():
-                    candidates.append((int(year_token), col_str))
+                    value = float(data_industry_type[col].iloc[0])
+                    # Some source sheets use 1 as a placeholder for incomplete future-year data.
+                    if value > 1.0:
+                        candidates.append((int(year_token), col_str))
 
         if not candidates:
             raise KeyError(
                 f"No energy-consumption column found for year {year}. "
-                "Expected columns like 'Energy consumption YYYY' or 'Energieverbrauch YYYY'."
+                "Expected columns like 'Energy consumption YYYY' or 'Energieverbrauch YYYY' "
+                "with a positive, non-placeholder value."
             )
 
         candidates.sort(key=lambda item: item[0])
         energy_col = candidates[-1][1]
+        fallback_year = candidates[-1][0]
+        warnings.warn(
+            f"Energy consumption for {year} is unavailable; using {fallback_year}.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
 
     energy_per_year_MWh = float(data_industry_type[energy_col].iloc[0])
     
@@ -49,10 +61,16 @@ def add_fluctuations(industry_number, df_scaled, data_industry_type):
     Add realistic fluctuations to mechanical drives.
     """
     # Get fluctuation factor from industry data (relative to 100 kW baseline)
-    s_norm = data_industry_type["Fluctuation"][industry_number]
+    row = data_industry_type[data_industry_type["industry_number"] == industry_number]
+    if row.empty or "Fluctuation" not in row.columns:
+        return df_scaled
+
+    s_norm = float(row["Fluctuation"].iloc[0])
     
     # Find actual peak power in the load profile
     power_peak = np.max(df_scaled["Total"])
+    if power_peak <= 0:
+        return df_scaled
     
     # Scale the fluctuation to actual power level
     s_rel = s_norm * (100 / power_peak) ** 0.5
@@ -62,6 +80,10 @@ def add_fluctuations(industry_number, df_scaled, data_industry_type):
     
     # Generate noise
     rand_numbers = np.random.normal(0, s_abs, len(df_scaled)).round(0)
+
+    def _recalculate_total():
+        application_columns = [column for column in df_scaled.columns if column != "Total"]
+        df_scaled["Total"] = df_scaled[application_columns].sum(axis=1).round(0)
     
     has_cont = "Continuous mechanical drive" in df_scaled.columns
     has_disc = "Discontinuous mechanical drive" in df_scaled.columns
@@ -69,33 +91,37 @@ def add_fluctuations(industry_number, df_scaled, data_industry_type):
     if has_cont or has_disc:
         if has_cont and has_disc:
             total_mech = df_scaled["Continuous mechanical drive"] + df_scaled["Discontinuous mechanical drive"]
+            safe_noise = np.maximum(rand_numbers, -total_mech.to_numpy(dtype=float))
             ratio_cont = total_mech.copy()
             ratio_cont[total_mech > 0] = df_scaled["Continuous mechanical drive"][total_mech > 0] / total_mech[total_mech > 0]
             ratio_cont[total_mech <= 0] = 0.5
             ratio_disc = 1.0 - ratio_cont
 
             df_scaled["Continuous mechanical drive"] = (
-                df_scaled["Continuous mechanical drive"] + rand_numbers * ratio_cont
-            )
+                df_scaled["Continuous mechanical drive"] + safe_noise * ratio_cont
+            ).clip(lower=0)
             df_scaled["Discontinuous mechanical drive"] = (
-                df_scaled["Discontinuous mechanical drive"] + rand_numbers * ratio_disc
-            )
+                df_scaled["Discontinuous mechanical drive"] + safe_noise * ratio_disc
+            ).clip(lower=0)
         else:
             target_col = "Continuous mechanical drive" if has_cont else "Discontinuous mechanical drive"
-            df_scaled[target_col] = df_scaled[target_col] + rand_numbers
+            safe_noise = np.maximum(rand_numbers, -df_scaled[target_col].to_numpy(dtype=float))
+            df_scaled[target_col] = (df_scaled[target_col] + safe_noise).clip(lower=0)
 
-        df_scaled["Total"] = df_scaled["Total"] + rand_numbers
+        _recalculate_total()
         return df_scaled
 
     # New 6-category structure
     if "Motor drives" in df_scaled.columns:
-        df_scaled["Motor drives"] = df_scaled["Motor drives"] + rand_numbers
-        df_scaled["Total"] = df_scaled["Total"] + rand_numbers
+        safe_noise = np.maximum(rand_numbers, -df_scaled["Motor drives"].to_numpy(dtype=float))
+        df_scaled["Motor drives"] = (df_scaled["Motor drives"] + safe_noise).clip(lower=0)
+        _recalculate_total()
         return df_scaled
 
     # Fallback to aggregated mechanical drives
     if "Mechanical drives" in df_scaled.columns:
-        df_scaled["Mechanical drives"] = df_scaled["Mechanical drives"] + rand_numbers
-        df_scaled["Total"] = df_scaled["Total"] + rand_numbers
+        safe_noise = np.maximum(rand_numbers, -df_scaled["Mechanical drives"].to_numpy(dtype=float))
+        df_scaled["Mechanical drives"] = (df_scaled["Mechanical drives"] + safe_noise).clip(lower=0)
+        _recalculate_total()
 
     return df_scaled
